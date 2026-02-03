@@ -58,7 +58,7 @@ var (
 
 // Maximum sizes for keys and values.
 const (
-	MaxKeySize   = 64 * 1024       // 64KB
+	MaxKeySize   = 64 * 1024         // 64KB
 	MaxValueSize = 256 * 1024 * 1024 // 256MB
 )
 

@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Run tests
+        run: go test -v -race ./...
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build binaries
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          BUILD_TIME=$(date -u '+%Y-%m-%d_%H:%M:%S')
+          COMMIT=$(git rev-parse --short HEAD)
+          LDFLAGS="-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.Commit=${COMMIT}"
+          
+          # Linux AMD64
+          GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/rapidodb-server-linux-amd64 ./cmd/server
+          GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/rapidodb-bench-linux-amd64 ./cmd/bench
+          
+          # Linux ARM64
+          GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/rapidodb-server-linux-arm64 ./cmd/server
+          GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/rapidodb-bench-linux-arm64 ./cmd/bench
+          
+          # macOS AMD64
+          GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/rapidodb-server-darwin-amd64 ./cmd/server
+          GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/rapidodb-bench-darwin-amd64 ./cmd/bench
+          
+          # macOS ARM64 (Apple Silicon)
+          GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/rapidodb-server-darwin-arm64 ./cmd/server
+          GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o dist/rapidodb-bench-darwin-arm64 ./cmd/bench
+          
+          # Windows AMD64
+          GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/rapidodb-server-windows-amd64.exe ./cmd/server
+          GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o dist/rapidodb-bench-windows-amd64.exe ./cmd/bench
+
+      - name: Create archives
+        run: |
+          cd dist
+          VERSION=${{ steps.version.outputs.VERSION }}
+          
+          # Linux AMD64
+          tar -czvf rapidodb-${VERSION}-linux-amd64.tar.gz rapidodb-server-linux-amd64 rapidodb-bench-linux-amd64
+          
+          # Linux ARM64
+          tar -czvf rapidodb-${VERSION}-linux-arm64.tar.gz rapidodb-server-linux-arm64 rapidodb-bench-linux-arm64
+          
+          # macOS AMD64
+          tar -czvf rapidodb-${VERSION}-darwin-amd64.tar.gz rapidodb-server-darwin-amd64 rapidodb-bench-darwin-amd64
+          
+          # macOS ARM64
+          tar -czvf rapidodb-${VERSION}-darwin-arm64.tar.gz rapidodb-server-darwin-arm64 rapidodb-bench-darwin-arm64
+          
+          # Windows AMD64
+          zip rapidodb-${VERSION}-windows-amd64.zip rapidodb-server-windows-amd64.exe rapidodb-bench-windows-amd64.exe
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz *.zip > checksums.txt
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          # Extract changelog section for this version
+          sed -n "/^## \[${VERSION}\]/,/^## \[/p" CHANGELOG.md | sed '$d' > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "Release ${VERSION}" > release_notes.md
+            echo "" >> release_notes.md
+            echo "See CHANGELOG.md for details." >> release_notes.md
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

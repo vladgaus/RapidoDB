@@ -21,7 +21,7 @@ func TestPutGetUint16(t *testing.T) {
 }
 
 func TestPutGetUint32(t *testing.T) {
-	tests := []uint32{0, 1, 255, 256, 65535, 1<<24, 1<<32 - 1}
+	tests := []uint32{0, 1, 255, 256, 65535, 1 << 24, 1<<32 - 1}
 	buf := make([]byte, 4)
 
 	for _, v := range tests {
