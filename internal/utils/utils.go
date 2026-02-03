@@ -63,10 +63,8 @@ func ParseFileNum(filename string) uint64 {
 	ext := filepath.Ext(base)
 	name := strings.TrimSuffix(base, ext)
 
-	// Handle MANIFEST files
-	if after, ok := strings.CutPrefix(name, ManifestPrefix); ok {
-		name = after
-	}
+	// Handle MANIFEST files (TrimPrefix is safe even if prefix doesn't exist)
+	name = strings.TrimPrefix(name, ManifestPrefix)
 
 	num, err := strconv.ParseUint(name, 10, 64)
 	if err != nil {
@@ -110,11 +108,11 @@ func EnsureDir(dir string) error {
 
 // RemoveFile removes a file, ignoring "not exists" errors.
 func RemoveFile(path string) error {
-	err := os.Remove(path)
-	if os.IsNotExist(err) {
+	removeErr := os.Remove(path)
+	if os.IsNotExist(removeErr) {
 		return nil
 	}
-	return err
+	return removeErr
 }
 
 // SyncDir syncs a directory to ensure durability of file operations.
@@ -149,32 +147,38 @@ func AtomicWrite(path string, data []byte, perm os.FileMode) error {
 	}()
 
 	// Write data
-	if _, err := tempFile.Write(data); err != nil {
+	_, err = tempFile.Write(data)
+	if err != nil {
 		return err
 	}
 
 	// Sync to disk
-	if err := tempFile.Sync(); err != nil {
+	err = tempFile.Sync()
+	if err != nil {
 		return err
 	}
 
 	// Close before rename
-	if err := tempFile.Close(); err != nil {
+	err = tempFile.Close()
+	if err != nil {
 		return err
 	}
 
 	// Set permissions
-	if err := os.Chmod(tempPath, perm); err != nil {
+	err = os.Chmod(tempPath, perm)
+	if err != nil {
 		return err
 	}
 
 	// Atomic rename
-	if err := os.Rename(tempPath, path); err != nil {
+	err = os.Rename(tempPath, path)
+	if err != nil {
 		return err
 	}
 
 	// Sync directory
-	if err := SyncDir(dir); err != nil {
+	err = SyncDir(dir)
+	if err != nil {
 		return err
 	}
 
