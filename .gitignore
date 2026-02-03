@@ -1,0 +1,52 @@
+# Build artifacts
+/build/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data directories
+rapidodb_data/
+benchmark_data/
+testdata/
+*.sst
+*.wal
+MANIFEST-*
+CURRENT
+LOCK
+
+# Temporary files
+*.tmp
+*.temp
+
+# Profiling
+*.prof
+*.pprof
+
+# Logs
+*.log
+
+# Config files with secrets
+config.local.yaml
+.env

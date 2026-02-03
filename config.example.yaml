@@ -1,0 +1,100 @@
+# RapidoDB Configuration Example
+# Copy this file to config.yaml and modify as needed
+
+# Data directory for all storage files
+data_dir: ./rapidodb_data
+
+# MemTable configuration
+memtable:
+  # Maximum size of a single MemTable in bytes (default: 64MB)
+  max_size: 67108864
+  # Maximum number of MemTables before write stalling (default: 4)
+  max_memtables: 4
+  # MemTable implementation: "skiplist" (default)
+  type: skiplist
+
+# Write-Ahead Log configuration
+wal:
+  # Enable WAL for durability (default: true)
+  enabled: true
+  # Sync to disk after each write (default: false)
+  # Setting to true provides strongest durability but impacts performance
+  sync_on_write: false
+  # Maximum WAL file size in bytes (default: 128MB)
+  max_size: 134217728
+  # Interval for automatic sync when sync_on_write is false (default: 1s)
+  sync_interval: 1s
+
+# SSTable configuration
+sstable:
+  # Size of data blocks within SSTables (default: 4KB)
+  # Smaller = better random read, larger = better sequential
+  block_size: 4096
+  # Number of keys between sparse index entries (default: 16)
+  sparse_index_interval: 16
+  # Compression algorithm: "none", "snappy", "zstd" (default: none)
+  compression: none
+  # Target file size for SSTables (default: 64MB)
+  target_file_size: 67108864
+
+# Compaction configuration
+compaction:
+  # Compaction strategy: "leveled", "tiered", or "fifo" (default: leveled)
+  strategy: leveled
+  # Number of concurrent compaction workers (default: 4)
+  max_background_compactions: 4
+  # Rate limit for compaction I/O in MB/s, 0 = unlimited (default: 0)
+  compaction_rate_limit_mb: 0
+  
+  # Leveled compaction settings (used when strategy is "leveled")
+  leveled:
+    # Number of levels excluding L0 (default: 7)
+    num_levels: 7
+    # Number of L0 files that trigger compaction (default: 4)
+    l0_compaction_trigger: 4
+    # Number of L0 files that cause write stall (default: 12)
+    l0_stop_writes_trigger: 12
+    # Target size for L1 in bytes (default: 256MB)
+    base_level_size: 268435456
+    # Size ratio between adjacent levels (default: 10)
+    level_size_multiplier: 10
+  
+  # Tiered compaction settings (used when strategy is "tiered")
+  tiered:
+    # Maximum number of sorted runs/tiers (default: 6)
+    max_tiers: 6
+    # Size ratio threshold for triggering compaction (default: 1)
+    size_ratio: 1
+    # Space amplification threshold for full compaction (default: 200%)
+    max_size_amplification_percent: 200
+    # Minimum number of tiers to compact together (default: 2)
+    min_merge_width: 2
+  
+  # FIFO compaction settings (used when strategy is "fifo")
+  fifo:
+    # Total size limit for all SST files (default: 1GB)
+    max_table_files_size_bytes: 1073741824
+    # Time-to-live for SST files, 0 = disabled (default: 0)
+    ttl: 0
+
+# Bloom filter configuration
+bloom_filter:
+  # Enable Bloom filters for SSTables (default: true)
+  enabled: true
+  # Bits per key in the filter (default: 10)
+  # Higher = lower false positive rate, more memory
+  # 10 bits ≈ 1% false positive rate
+  bits_per_key: 10
+
+# TCP server configuration
+server:
+  # Host address to bind to (default: 0.0.0.0)
+  host: 0.0.0.0
+  # Port to listen on (default: 11211, Memcached default)
+  port: 11211
+  # Maximum concurrent connections (default: 1000)
+  max_connections: 1000
+  # Read timeout (default: 30s)
+  read_timeout: 30s
+  # Write timeout (default: 30s)
+  write_timeout: 30s
