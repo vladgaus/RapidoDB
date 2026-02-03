@@ -157,7 +157,7 @@ rapidodb/
 | Step | Component | Status | Description |
 |:----:|:----------|:------:|:------------|
 | 1 | Project Scaffold | ✅ | Basic structure, config, types |
-| 2 | SkipList MemTable | ⏳ | In-memory sorted data structure |
+| 2 | SkipList MemTable | ✅ | In-memory sorted data structure |
 | 3 | Write-Ahead Log | ⏳ | Durability layer |
 | 4 | SSTable Writer | ⏳ | Immutable file format |
 | 5 | SSTable Reader | ⏳ | Read with sparse index |
