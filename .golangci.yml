@@ -21,7 +21,6 @@ linters:
      - exportloopref  # Check for pointers to loop variables
      - bodyclose      # Check HTTP response body is closed
      - noctx          # Check for HTTP requests without context
-     - shadow         
      - copyloopvar   
 
 linters-settings:
