@@ -1,6 +1,3 @@
-# golangci-lint configuration for RapidoDB
-# https://golangci-lint.run/usage/configuration/
-
 run:
   timeout: 5m
   issues-exit-code: 1
@@ -8,33 +5,36 @@ run:
 
 linters:
   enable:
-    - errcheck       # Check for unchecked errors
-    - gosimple       # Simplify code
-    - govet          # Report suspicious constructs
-    - ineffassign    # Detect ineffective assignments
-    - staticcheck    # Static analysis checks
-    - unused         # Find unused code
-    - gofmt          # Check formatting
-    - goimports      # Check imports
-    - misspell       # Find misspellings
-    - unconvert      # Remove unnecessary conversions
-    - unparam        # Find unused function parameters
-    - nakedret       # Find naked returns in long functions
-    - prealloc       # Find slice preallocation opportunities
-    - exportloopref  # Check for pointers to loop variables
-    - bodyclose      # Check HTTP response body is closed
-    - noctx          # Check for HTTP requests without context
+     - errcheck       # Check for unchecked errors
+     - gosimple       # Simplify code
+     - govet          # Report suspicious constructs
+     - ineffassign    # Detect ineffective assignments
+     - staticcheck    # Static analysis checks
+     - unused         # Find unused code
+     - gofmt          # Check formatting
+     - goimports      # Check imports
+     - misspell       # Find misspellings
+     - unconvert      # Remove unnecessary conversions
+     - unparam        # Find unused function parameters
+     - nakedret       # Find naked returns in long functions
+     - prealloc       # Find slice preallocation opportunities
+     - exportloopref  # Check for pointers to loop variables
+     - bodyclose      # Check HTTP response body is closed
+     - noctx          # Check for HTTP requests without context
+     - shadow         
+     - copyloopvar   
 
 linters-settings:
   errcheck:
     check-type-assertions: true
     check-blank: true
-  govet:
-    check-shadowing: true
+
   goimports:
     local-prefixes: github.com/rapidodb/rapidodb
+
   nakedret:
     max-func-lines: 30
+
   prealloc:
     simple: true
     range-loops: true
@@ -47,6 +47,7 @@ issues:
       linters:
         - errcheck
         - unparam
+
     # Exclude some linters from running on test utilities
     - path: tests/
       linters:
