@@ -14,24 +14,24 @@ import (
 type FileType int
 
 const (
-	FileTypeUnknown FileType = iota
-	FileTypeSSTable          // .sst files
-	FileTypeWAL              // .wal files
-	FileTypeManifest         // MANIFEST files
-	FileTypeCurrent          // CURRENT file
-	FileTypeLock             // LOCK file
-	FileTypeLog              // .log files (info/error logs)
-	FileTypeTemp             // .tmp files
+	FileTypeUnknown  FileType = iota
+	FileTypeSSTable           // .sst files
+	FileTypeWAL               // .wal files
+	FileTypeManifest          // MANIFEST files
+	FileTypeCurrent           // CURRENT file
+	FileTypeLock              // LOCK file
+	FileTypeLog               // .log files (info/error logs)
+	FileTypeTemp              // .tmp files
 )
 
 // File extensions and names.
 const (
-	SSTableExtension  = ".sst"
-	WALExtension      = ".wal"
-	TempExtension     = ".tmp"
-	ManifestPrefix    = "MANIFEST-"
-	CurrentFileName   = "CURRENT"
-	LockFileName      = "LOCK"
+	SSTableExtension = ".sst"
+	WALExtension     = ".wal"
+	TempExtension    = ".tmp"
+	ManifestPrefix   = "MANIFEST-"
+	CurrentFileName  = "CURRENT"
+	LockFileName     = "LOCK"
 )
 
 // MakeSSTablePath creates a path for an SSTable file.
@@ -64,8 +64,8 @@ func ParseFileNum(filename string) uint64 {
 	name := strings.TrimSuffix(base, ext)
 
 	// Handle MANIFEST files
-	if strings.HasPrefix(name, ManifestPrefix) {
-		name = strings.TrimPrefix(name, ManifestPrefix)
+	if after, ok := strings.CutPrefix(name, ManifestPrefix); ok {
+		name = after
 	}
 
 	num, err := strconv.ParseUint(name, 10, 64)

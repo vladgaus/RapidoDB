@@ -307,4 +307,3 @@ func BenchmarkMemTableSeek(b *testing.B) {
 		iter.Close()
 	}
 }
-

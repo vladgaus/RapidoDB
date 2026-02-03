@@ -29,23 +29,23 @@ This project is designed as an **educational deep-dive** into storage engine int
 ├─────────────────────────────────────────────────────────────────┤
 │  Client API (Get/Put/Delete/Scan)                               │
 │       ↓                                                         │
-│  ┌─────────────┐     ┌─────────────┐                           │
-│  │  MemTable   │ ←── │    WAL      │  (durability)             │
-│  │ (SkipList)  │     │  (append)   │                           │
-│  └─────────────┘     └─────────────┘                           │
+│  ┌─────────────┐     ┌─────────────┐                            │
+│  │  MemTable   │ ←── │    WAL      │  (durability)              │
+│  │ (SkipList)  │     │  (append)   │                            │
+│  └─────────────┘     └─────────────┘                            │
 │       ↓ flush                                                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                    SSTable Levels                        │   │
-│  │  L0: [SST][SST][SST] (unsorted, may overlap)            │   │
-│  │  L1: [SST][SST][SST][SST] (sorted, non-overlapping)     │   │
-│  │  L2: [SST][SST][SST][SST][SST][SST][SST][SST]          │   │
-│  │  ...                                                     │   │
-│  └─────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                    SSTable Levels                       │    │
+│  │  L0: [SST][SST][SST] (unsorted, may overlap)            │    │
+│  │  L1: [SST][SST][SST][SST] (sorted, non-overlapping)     │    │
+│  │  L2: [SST][SST][SST][SST][SST][SST][SST][SST]           │    │
+│  │  ...                                                    │    │
+│  └─────────────────────────────────────────────────────────┘    │
 │       ↑                                                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │   Bloom     │  │   Block     │  │  Compaction │            │
-│  │  Filters    │  │   Cache     │  │  Scheduler  │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │   Bloom     │  │   Block     │  │  Compaction │              │
+│  │  Filters    │  │   Cache     │  │  Scheduler  │              │
+│  └─────────────┘  └─────────────┘  └─────────────┘              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
