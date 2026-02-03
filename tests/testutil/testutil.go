@@ -167,7 +167,7 @@ func ListDir(t *testing.T, dir string) []string {
 	if err != nil {
 		t.Fatalf("failed to list directory: %v", err)
 	}
-	var names []string
+	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}

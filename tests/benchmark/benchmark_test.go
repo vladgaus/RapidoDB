@@ -3,9 +3,11 @@ package benchmark
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/rapidodb/rapidodb/internal/encoding"
+	"github.com/rapidodb/rapidodb/pkg/memtable"
 	"github.com/rapidodb/rapidodb/pkg/types"
 )
 
@@ -189,5 +191,119 @@ func BenchmarkEntrySize(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = entry.Size()
+	}
+}
+
+// MemTable benchmarks
+
+func BenchmarkMemTablePutSmall(b *testing.B) {
+	mt := memtable.NewMemTable(1, 1024*1024*1024)
+
+	keys := make([][]byte, b.N)
+	values := make([][]byte, b.N)
+	for i := 0; i < b.N; i++ {
+		keys[i] = []byte(fmt.Sprintf("key%08d", i))
+		values[i] = []byte("value")
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		mt.Put(keys[i], values[i], uint64(i+1))
+	}
+}
+
+func BenchmarkMemTablePutLarge(b *testing.B) {
+	mt := memtable.NewMemTable(1, 1024*1024*1024)
+	largeValue := bytes.Repeat([]byte("v"), 1024)
+
+	keys := make([][]byte, b.N)
+	for i := 0; i < b.N; i++ {
+		keys[i] = []byte(fmt.Sprintf("key%08d", i))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		mt.Put(keys[i], largeValue, uint64(i+1))
+	}
+}
+
+func BenchmarkMemTableGetHit(b *testing.B) {
+	mt := memtable.NewMemTable(1, 1024*1024*1024)
+	n := 100000
+
+	keys := make([][]byte, n)
+	for i := 0; i < n; i++ {
+		keys[i] = []byte(fmt.Sprintf("key%08d", i))
+		mt.Put(keys[i], []byte("value"), uint64(i+1))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		mt.Get(keys[i%n], ^uint64(0))
+	}
+}
+
+func BenchmarkMemTableGetMiss(b *testing.B) {
+	mt := memtable.NewMemTable(1, 1024*1024*1024)
+	n := 100000
+
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%08d", i))
+		mt.Put(key, []byte("value"), uint64(i+1))
+	}
+
+	missKeys := make([][]byte, 1000)
+	for i := 0; i < 1000; i++ {
+		missKeys[i] = []byte(fmt.Sprintf("miss%08d", i))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		mt.Get(missKeys[i%1000], ^uint64(0))
+	}
+}
+
+func BenchmarkMemTableIterateAll(b *testing.B) {
+	mt := memtable.NewMemTable(1, 1024*1024*1024)
+	n := 10000
+
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%08d", i))
+		mt.Put(key, []byte("value"), uint64(i+1))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		iter := mt.NewIterator()
+		iter.SeekToFirst()
+		count := 0
+		for iter.Valid() {
+			_ = iter.Key()
+			iter.Next()
+			count++
+		}
+		iter.Close()
+	}
+}
+
+func BenchmarkMemTableSeek(b *testing.B) {
+	mt := memtable.NewMemTable(1, 1024*1024*1024)
+	n := 100000
+
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%08d", i))
+		mt.Put(key, []byte("value"), uint64(i+1))
+	}
+
+	seekKeys := make([][]byte, 1000)
+	for i := 0; i < 1000; i++ {
+		seekKeys[i] = []byte(fmt.Sprintf("key%08d", i*100))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		iter := mt.NewIterator()
+		iter.Seek(seekKeys[i%1000])
+		iter.Close()
 	}
 }

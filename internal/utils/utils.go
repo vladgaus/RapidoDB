@@ -14,24 +14,24 @@ import (
 type FileType int
 
 const (
-	FileTypeUnknown FileType = iota
-	FileTypeSSTable          // .sst files
-	FileTypeWAL              // .wal files
-	FileTypeManifest         // MANIFEST files
-	FileTypeCurrent          // CURRENT file
-	FileTypeLock             // LOCK file
-	FileTypeLog              // .log files (info/error logs)
-	FileTypeTemp             // .tmp files
+	FileTypeUnknown  FileType = iota
+	FileTypeSSTable           // .sst files
+	FileTypeWAL               // .wal files
+	FileTypeManifest          // MANIFEST files
+	FileTypeCurrent           // CURRENT file
+	FileTypeLock              // LOCK file
+	FileTypeLog               // .log files (info/error logs)
+	FileTypeTemp              // .tmp files
 )
 
 // File extensions and names.
 const (
-	SSTableExtension  = ".sst"
-	WALExtension      = ".wal"
-	TempExtension     = ".tmp"
-	ManifestPrefix    = "MANIFEST-"
-	CurrentFileName   = "CURRENT"
-	LockFileName      = "LOCK"
+	SSTableExtension = ".sst"
+	WALExtension     = ".wal"
+	TempExtension    = ".tmp"
+	ManifestPrefix   = "MANIFEST-"
+	CurrentFileName  = "CURRENT"
+	LockFileName     = "LOCK"
 )
 
 // MakeSSTablePath creates a path for an SSTable file.
@@ -63,10 +63,8 @@ func ParseFileNum(filename string) uint64 {
 	ext := filepath.Ext(base)
 	name := strings.TrimSuffix(base, ext)
 
-	// Handle MANIFEST files
-	if strings.HasPrefix(name, ManifestPrefix) {
-		name = strings.TrimPrefix(name, ManifestPrefix)
-	}
+	// Handle MANIFEST files (TrimPrefix is safe even if prefix doesn't exist)
+	name = strings.TrimPrefix(name, ManifestPrefix)
 
 	num, err := strconv.ParseUint(name, 10, 64)
 	if err != nil {
@@ -110,11 +108,11 @@ func EnsureDir(dir string) error {
 
 // RemoveFile removes a file, ignoring "not exists" errors.
 func RemoveFile(path string) error {
-	err := os.Remove(path)
-	if os.IsNotExist(err) {
+	removeErr := os.Remove(path)
+	if os.IsNotExist(removeErr) {
 		return nil
 	}
-	return err
+	return removeErr
 }
 
 // SyncDir syncs a directory to ensure durability of file operations.
@@ -133,13 +131,13 @@ func SyncDir(dir string) error {
 // temporary file first and then renaming it.
 func AtomicWrite(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
+
 	tempFile, err := os.CreateTemp(dir, "rapidodb-temp-*")
 	if err != nil {
 		return err
 	}
 	tempPath := tempFile.Name()
 
-	// Clean up temp file on error
 	success := false
 	defer func() {
 		if !success {
@@ -149,32 +147,32 @@ func AtomicWrite(path string, data []byte, perm os.FileMode) error {
 	}()
 
 	// Write data
-	if _, err := tempFile.Write(data); err != nil {
+	if _, err = tempFile.Write(data); err != nil {
 		return err
 	}
 
 	// Sync to disk
-	if err := tempFile.Sync(); err != nil {
+	if err = tempFile.Sync(); err != nil {
 		return err
 	}
 
 	// Close before rename
-	if err := tempFile.Close(); err != nil {
+	if err = tempFile.Close(); err != nil {
 		return err
 	}
 
 	// Set permissions
-	if err := os.Chmod(tempPath, perm); err != nil {
+	if err = os.Chmod(tempPath, perm); err != nil {
 		return err
 	}
 
 	// Atomic rename
-	if err := os.Rename(tempPath, path); err != nil {
+	if err = os.Rename(tempPath, path); err != nil {
 		return err
 	}
 
 	// Sync directory
-	if err := SyncDir(dir); err != nil {
+	if err = SyncDir(dir); err != nil {
 		return err
 	}
 
