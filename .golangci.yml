@@ -18,10 +18,9 @@ linters:
      - unparam        # Find unused function parameters
      - nakedret       # Find naked returns in long functions
      - prealloc       # Find slice preallocation opportunities
-     - exportloopref  # Check for pointers to loop variables
+     - copyloopvar    # Check for pointers to loop variables
      - bodyclose      # Check HTTP response body is closed
      - noctx          # Check for HTTP requests without context
-     - copyloopvar   
 
 linters-settings:
   errcheck:
