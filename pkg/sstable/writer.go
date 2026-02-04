@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"os"
 
+	"github.com/rapidodb/rapidodb/pkg/bloom"
 	"github.com/rapidodb/rapidodb/pkg/types"
 )
 
@@ -29,12 +30,13 @@ type Writer struct {
 	indexEntries []*IndexEntry
 	offset       uint64
 
-	// Filter (bloom filter keys)
-	filterKeys [][]byte
+	// Bloom filter
+	bloomFilter *bloom.Filter
 
 	// Options
 	blockSize       int
 	restartInterval int
+	bitsPerKey      int
 
 	// Stats
 	entryCount uint64
@@ -50,6 +52,7 @@ type Writer struct {
 type WriterOptions struct {
 	BlockSize       int // Target data block size (default: 4KB)
 	RestartInterval int // Entries between restart points (default: 16)
+	BitsPerKey      int // Bloom filter bits per key (default: 10, ~1% FP rate)
 }
 
 // DefaultWriterOptions returns sensible defaults.
@@ -57,6 +60,7 @@ func DefaultWriterOptions() WriterOptions {
 	return WriterOptions{
 		BlockSize:       DefaultBlockSize,
 		RestartInterval: DefaultRestartInterval,
+		BitsPerKey:      10, // ~1% false positive rate
 	}
 }
 
@@ -67,6 +71,9 @@ func NewWriter(path string, opts WriterOptions) (*Writer, error) {
 	}
 	if opts.RestartInterval <= 0 {
 		opts.RestartInterval = DefaultRestartInterval
+	}
+	if opts.BitsPerKey <= 0 {
+		opts.BitsPerKey = 10
 	}
 
 	file, err := os.Create(path)
@@ -80,9 +87,9 @@ func NewWriter(path string, opts WriterOptions) (*Writer, error) {
 		path:            path,
 		dataBlock:       NewBlockBuilder(opts.RestartInterval),
 		indexEntries:    make([]*IndexEntry, 0, 128),
-		filterKeys:      make([][]byte, 0, 1024),
 		blockSize:       opts.BlockSize,
 		restartInterval: opts.RestartInterval,
+		bitsPerKey:      opts.BitsPerKey,
 	}, nil
 }
 
@@ -102,10 +109,14 @@ func (w *Writer) Add(entry *types.Entry) error {
 	}
 	w.maxKey = append(w.maxKey[:0], entry.Key...)
 
-	// Collect key for bloom filter (must copy since entry may be reused)
-	keyCopy := make([]byte, len(entry.Key))
-	copy(keyCopy, entry.Key)
-	w.filterKeys = append(w.filterKeys, keyCopy)
+	// Initialize bloom filter on first entry (now we know we have entries)
+	if w.bloomFilter == nil {
+		// Estimate: start with capacity for 1000 keys, will grow if needed
+		w.bloomFilter = bloom.New(1000, w.bitsPerKey)
+	}
+
+	// Add key to bloom filter
+	w.bloomFilter.Add(entry.Key)
 
 	// Try to add to current block
 	if !w.dataBlock.Add(entry) {
@@ -162,49 +173,19 @@ func (w *Writer) flushDataBlock() error {
 func (w *Writer) writeFilterBlock() (BlockHandle, error) {
 	handle := BlockHandle{Offset: w.offset, Size: 0}
 
-	if len(w.filterKeys) == 0 {
+	if w.bloomFilter == nil {
 		return handle, nil
 	}
 
-	// Build bloom filter
-	// Using 10 bits per key which gives ~1% false positive rate
-	bitsPerKey := 10
-	numBits := len(w.filterKeys) * bitsPerKey
-	if numBits < 64 {
-		numBits = 64
-	}
-	// Round up to byte boundary - critical for matching read/write numBits
-	numBytes := (numBits + 7) / 8
-	numBits = numBytes * 8             // Use actual bits available
-	filter := make([]byte, numBytes+1) // +1 for number of hash functions
-
-	// Number of hash functions (k ≈ 0.69 * m/n)
-	k := uint8((numBits / len(w.filterKeys)) * 69 / 100)
-	if k < 1 {
-		k = 1
-	}
-	if k > 30 {
-		k = 30
-	}
-	filter[len(filter)-1] = k
-
-	// Add keys to filter using double hashing
-	for _, key := range w.filterKeys {
-		h := bloomHash(key)
-		delta := (h >> 17) | (h << 15) // Rotate right 17 bits
-		for j := uint8(0); j < k; j++ {
-			bitpos := h % uint32(numBits)
-			filter[bitpos/8] |= 1 << (bitpos % 8)
-			h += delta
-		}
-	}
+	// Encode bloom filter
+	filterData := w.bloomFilter.Encode()
 
 	// Write filter with CRC
-	crc := computeCRC(filter)
+	crc := computeCRC(filterData)
 	crcBuf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(crcBuf, crc)
 
-	n1, err := w.writer.Write(filter)
+	n1, err := w.writer.Write(filterData)
 	if err != nil {
 		return handle, err
 	}
@@ -350,33 +331,4 @@ type Metadata struct {
 	MinKey     []byte
 	MaxKey     []byte
 	BlockCount uint64
-}
-
-// bloomHash computes a hash for bloom filter.
-// Uses a variant of MurmurHash.
-func bloomHash(key []byte) uint32 {
-	const (
-		seed = 0xbc9f1d34
-		m    = 0xc6a4a793
-	)
-	h := uint32(seed) ^ uint32(len(key))*m
-	for len(key) >= 4 {
-		h += uint32(key[0]) | uint32(key[1])<<8 | uint32(key[2])<<16 | uint32(key[3])<<24
-		h *= m
-		h ^= h >> 16
-		key = key[4:]
-	}
-	switch len(key) {
-	case 3:
-		h += uint32(key[2]) << 16
-		fallthrough
-	case 2:
-		h += uint32(key[1]) << 8
-		fallthrough
-	case 1:
-		h += uint32(key[0])
-		h *= m
-		h ^= h >> 24
-	}
-	return h
 }
