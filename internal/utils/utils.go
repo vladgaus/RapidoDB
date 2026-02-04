@@ -147,38 +147,32 @@ func AtomicWrite(path string, data []byte, perm os.FileMode) error {
 	}()
 
 	// Write data
-	_, err = tempFile.Write(data)
-	if err != nil {
+	if _, err = tempFile.Write(data); err != nil {
 		return err
 	}
 
 	// Sync to disk
-	err = tempFile.Sync()
-	if err != nil {
+	if err = tempFile.Sync(); err != nil {
 		return err
 	}
 
 	// Close before rename
-	err = tempFile.Close()
-	if err != nil {
+	if err = tempFile.Close(); err != nil {
 		return err
 	}
 
 	// Set permissions
-	err = os.Chmod(tempPath, perm)
-	if err != nil {
+	if err = os.Chmod(tempPath, perm); err != nil {
 		return err
 	}
 
 	// Atomic rename
-	err = os.Rename(tempPath, path)
-	if err != nil {
+	if err = os.Rename(tempPath, path); err != nil {
 		return err
 	}
 
 	// Sync directory
-	err = SyncDir(dir)
-	if err != nil {
+	if err = SyncDir(dir); err != nil {
 		return err
 	}
 
