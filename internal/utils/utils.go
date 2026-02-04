@@ -131,13 +131,13 @@ func SyncDir(dir string) error {
 // temporary file first and then renaming it.
 func AtomicWrite(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-
 	tempFile, err := os.CreateTemp(dir, "rapidodb-temp-*")
 	if err != nil {
 		return err
 	}
 	tempPath := tempFile.Name()
 
+	// Clean up temp file on error
 	success := false
 	defer func() {
 		if !success {
