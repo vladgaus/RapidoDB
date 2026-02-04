@@ -326,7 +326,7 @@ func (m *Manager) listWALFiles() ([]uint64, error) {
 		return nil, errors.NewIOError("readdir", m.dir, err)
 	}
 
-	var files []uint64
+	files := make([]uint64, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
