@@ -4,11 +4,14 @@ package benchmark
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/rapidodb/rapidodb/internal/encoding"
 	"github.com/rapidodb/rapidodb/pkg/memtable"
 	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/rapidodb/rapidodb/pkg/wal"
 )
 
 // Entry encoding benchmarks
@@ -305,5 +308,93 @@ func BenchmarkMemTableSeek(b *testing.B) {
 		iter := mt.NewIterator()
 		iter.Seek(seekKeys[i%1000])
 		iter.Close()
+	}
+}
+
+// WAL benchmarks
+
+func BenchmarkWALWrite(b *testing.B) {
+	dir, err := os.MkdirTemp("", "rapidodb-bench-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	path := filepath.Join(dir, "test.wal")
+	w, err := wal.NewWriter(path, wal.DefaultWriterOptions())
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer w.Close()
+
+	entry := &types.Entry{
+		Key:    bytes.Repeat([]byte("k"), 16),
+		Value:  bytes.Repeat([]byte("v"), 100),
+		Type:   types.EntryTypePut,
+		SeqNum: 1,
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		entry.SeqNum = uint64(i + 1)
+		w.Write(entry)
+	}
+}
+
+func BenchmarkWALWriteSync(b *testing.B) {
+	dir, err := os.MkdirTemp("", "rapidodb-bench-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	path := filepath.Join(dir, "test.wal")
+	w, err := wal.NewWriter(path, wal.WriterOptions{SyncOnWrite: true})
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer w.Close()
+
+	entry := &types.Entry{
+		Key:    bytes.Repeat([]byte("k"), 16),
+		Value:  bytes.Repeat([]byte("v"), 100),
+		Type:   types.EntryTypePut,
+		SeqNum: 1,
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		entry.SeqNum = uint64(i + 1)
+		w.Write(entry)
+	}
+}
+
+func BenchmarkWALWriteBatch100(b *testing.B) {
+	dir, err := os.MkdirTemp("", "rapidodb-bench-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	path := filepath.Join(dir, "test.wal")
+	w, err := wal.NewWriter(path, wal.DefaultWriterOptions())
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer w.Close()
+
+	batch := make([]*types.Entry, 100)
+	for i := 0; i < 100; i++ {
+		batch[i] = &types.Entry{
+			Key:    bytes.Repeat([]byte("k"), 16),
+			Value:  bytes.Repeat([]byte("v"), 100),
+			Type:   types.EntryTypePut,
+			SeqNum: uint64(i + 1),
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		w.WriteBatch(batch)
 	}
 }
