@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/rapidodb/rapidodb/pkg/bloom"
 	"github.com/rapidodb/rapidodb/pkg/types"
 )
 
@@ -28,9 +29,7 @@ type Reader struct {
 	indexEntries []*IndexEntry
 
 	// Bloom filter
-	filter   []byte
-	filterK  uint8 // Number of hash functions
-	filterOk bool  // Filter loaded successfully
+	bloomFilter *bloom.Filter
 
 	closed bool
 }
@@ -137,8 +136,8 @@ func (r *Reader) loadFilter() {
 		return
 	}
 
-	// Verify CRC
-	if len(buf) < 5 { // At least k(1) + CRC(4)
+	// Verify CRC (last 4 bytes)
+	if len(buf) < 5 { // At least 1 byte of filter data + CRC(4)
 		return
 	}
 	content := buf[:len(buf)-4]
@@ -147,29 +146,20 @@ func (r *Reader) loadFilter() {
 		return
 	}
 
-	r.filter = content[:len(content)-1]
-	r.filterK = content[len(content)-1]
-	r.filterOk = true
+	// Decode bloom filter
+	filter, err := bloom.Decode(content)
+	if err != nil {
+		return
+	}
+	r.bloomFilter = filter
 }
 
 // mayContain checks bloom filter for key.
 func (r *Reader) mayContain(key []byte) bool {
-	if !r.filterOk || len(r.filter) == 0 {
+	if r.bloomFilter == nil {
 		return true // No filter, assume key may exist
 	}
-
-	numBits := uint32(len(r.filter) * 8)
-	h := bloomHash(key)
-	delta := (h >> 17) | (h << 15)
-
-	for j := uint8(0); j < r.filterK; j++ {
-		bitpos := h % numBits
-		if r.filter[bitpos/8]&(1<<(bitpos%8)) == 0 {
-			return false
-		}
-		h += delta
-	}
-	return true
+	return r.bloomFilter.MayContain(key)
 }
 
 // Get looks up a key and returns the entry if found.
