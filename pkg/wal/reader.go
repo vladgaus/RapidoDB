@@ -145,6 +145,7 @@ func (r *Reader) readRecord() ([]byte, error) {
 				// Corrupt: got FULL while assembling fragments
 				if r.skipCorruption {
 					r.recordBuf = r.recordBuf[:0]
+					inFragment = false
 					// Return this record as-is
 					return payload, nil
 				}
