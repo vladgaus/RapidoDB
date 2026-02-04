@@ -171,8 +171,6 @@ func TestSSTableWriteRead(t *testing.T) {
 	}
 	defer r.Close()
 
-	t.Logf("Filter ok: %v, filter len: %d", r.filterOk, len(r.filter))
-
 	// Point lookups
 	notFound := 0
 	for i := 0; i < 100; i++ {
@@ -399,7 +397,7 @@ func TestSSTableBloomFilter(t *testing.T) {
 	defer r.Close()
 
 	// Check bloom filter is loaded
-	if !r.filterOk {
+	if r.bloomFilter == nil {
 		t.Error("bloom filter should be loaded")
 	}
 

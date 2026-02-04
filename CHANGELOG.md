@@ -13,18 +13,17 @@ RapidoDB follows a milestone-based versioning during development:
 |:--------|:----------|
 | 0.1.x | SkipList MemTable |
 | 0.2.x | Write-Ahead Log (WAL) |
-| 0.3.x | SSTable Writer |
-| 0.4.x | SSTable Reader |
-| 0.5.x | Bloom Filters |
-| 0.6.x | Basic LSM Engine |
-| 0.7.x | Leveled Compaction |
-| 0.8.x | Tiered Compaction |
-| 0.9.x | FIFO Compaction |
-| 0.10.x | MVCC & Snapshots |
-| 0.11.x | Manifest & Recovery |
-| 0.12.x | Iterators & Range Scans |
-| 0.13.x | TCP Server (Memcached Protocol) |
-| 0.14.x | Benchmarks & Monitoring |
+| 0.3.x | SSTable Writer, SSTable Reader |
+| 0.4.x | Bloom Filters |
+| 0.5.x | Basic LSM Engine |
+| 0.6.x | Leveled Compaction |
+| 0.7.x | Tiered Compaction |
+| 0.8.x | FIFO Compaction |
+| 0.9.x | MVCC & Snapshots |
+| 0.10.x | Manifest & Recovery |
+| 0.11.x | Iterators & Range Scans |
+| 0.12.x | TCP Server (Memcached Protocol) |
+| 0.13.x | Benchmarks & Monitoring |
 | 1.0.0 | Production Ready |
 
 ---
