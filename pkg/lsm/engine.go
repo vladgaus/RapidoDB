@@ -36,7 +36,7 @@
 //  2. Write to MemTable
 //  3. When MemTable is full, make it immutable
 //  4. Flush immutable MemTable to SSTable (L0)
-//  5. Compact SSTables as needed (Step 8)
+//  5. Compact SSTables as needed
 //
 // Read Path:
 //  1. Check active MemTable
@@ -51,8 +51,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/rapidodb/rapidodb/pkg/compaction"
 	"github.com/rapidodb/rapidodb/pkg/memtable"
-	"github.com/rapidodb/rapidodb/pkg/sstable"
 	"github.com/rapidodb/rapidodb/pkg/wal"
 )
 
@@ -77,9 +77,11 @@ type Engine struct {
 	// Write-Ahead Log for durability
 	walManager *wal.Manager
 
-	// L0 SSTables (unsorted, may overlap)
-	// Ordered from newest to oldest
-	l0Tables []*sstable.Reader
+	// Level manager for SSTables (from compaction package)
+	levels *compaction.LevelManager
+
+	// Compactor with pluggable strategy
+	compactor *compaction.Compactor
 
 	// Sequence number for MVCC
 	seqNum uint64
@@ -102,6 +104,20 @@ type flushTask struct {
 	mem       *memtable.MemTable
 	walFileID uint64
 }
+
+// CompactionStrategy specifies the compaction algorithm.
+type CompactionStrategy = compaction.StrategyType
+
+const (
+	// CompactionLeveled uses level-based compaction (default).
+	CompactionLeveled = compaction.StrategyLeveled
+
+	// CompactionTiered uses size-tiered compaction.
+	CompactionTiered = compaction.StrategyTiered
+
+	// CompactionFIFO uses first-in-first-out compaction.
+	CompactionFIFO = compaction.StrategyFIFO
+)
 
 // Options configures the LSM engine.
 type Options struct {
@@ -126,26 +142,42 @@ type Options struct {
 	BloomBitsPerKey int // Bloom filter bits per key (default: 10)
 
 	// Background options
-	MaxBackgroundFlushes int // Max concurrent flush operations (default: 1)
+	MaxBackgroundFlushes     int // Max concurrent flush operations (default: 1)
+	MaxBackgroundCompactions int // Max concurrent compaction operations (default: 1)
+
+	// Compaction strategy
+	CompactionStrategy CompactionStrategy // leveled, tiered, or fifo (default: leveled)
 
 	// L0 options
 	L0CompactionTrigger int // Number of L0 files to trigger compaction (default: 4)
 	L0StopWritesTrigger int // Number of L0 files to stop writes (default: 12)
+
+	// Compaction options
+	NumLevels                  int     // Number of levels (default: 7)
+	MaxBytesForLevelBase       int64   // Target size for L1 (default: 64MB)
+	MaxBytesForLevelMultiplier float64 // Size ratio between levels (default: 10)
+	TargetFileSizeBase         int64   // Target file size for L1 (default: 4MB)
 }
 
 // DefaultOptions returns sensible default options.
 func DefaultOptions(dir string) Options {
 	return Options{
-		Dir:                  dir,
-		MemTableSize:         4 * 1024 * 1024, // 4MB
-		MaxMemTables:         4,
-		WALSyncOnWrite:       false,
-		WALMaxFileSize:       64 * 1024 * 1024, // 64MB
-		BlockSize:            4 * 1024,         // 4KB
-		BloomBitsPerKey:      10,
-		MaxBackgroundFlushes: 1,
-		L0CompactionTrigger:  4,
-		L0StopWritesTrigger:  12,
+		Dir:                        dir,
+		MemTableSize:               4 * 1024 * 1024, // 4MB
+		MaxMemTables:               4,
+		WALSyncOnWrite:             false,
+		WALMaxFileSize:             64 * 1024 * 1024, // 64MB
+		BlockSize:                  4 * 1024,         // 4KB
+		BloomBitsPerKey:            10,
+		MaxBackgroundFlushes:       1,
+		MaxBackgroundCompactions:   1,
+		CompactionStrategy:         CompactionLeveled,
+		L0CompactionTrigger:        4,
+		L0StopWritesTrigger:        12,
+		NumLevels:                  7,
+		MaxBytesForLevelBase:       64 * 1024 * 1024, // 64MB
+		MaxBytesForLevelMultiplier: 10,
+		TargetFileSizeBase:         4 * 1024 * 1024, // 4MB
 	}
 }
 
@@ -172,11 +204,29 @@ func (opts *Options) validate() error {
 	if opts.MaxBackgroundFlushes <= 0 {
 		opts.MaxBackgroundFlushes = 1
 	}
+	if opts.MaxBackgroundCompactions <= 0 {
+		opts.MaxBackgroundCompactions = 1
+	}
+	if opts.CompactionStrategy == "" {
+		opts.CompactionStrategy = CompactionLeveled
+	}
 	if opts.L0CompactionTrigger <= 0 {
 		opts.L0CompactionTrigger = 4
 	}
 	if opts.L0StopWritesTrigger <= 0 {
 		opts.L0StopWritesTrigger = 12
+	}
+	if opts.NumLevels <= 0 {
+		opts.NumLevels = 7
+	}
+	if opts.MaxBytesForLevelBase <= 0 {
+		opts.MaxBytesForLevelBase = 64 * 1024 * 1024
+	}
+	if opts.MaxBytesForLevelMultiplier <= 0 {
+		opts.MaxBytesForLevelMultiplier = 10
+	}
+	if opts.TargetFileSizeBase <= 0 {
+		opts.TargetFileSizeBase = 4 * 1024 * 1024
 	}
 	return nil
 }
