@@ -276,7 +276,9 @@ func (e *Engine) doFlush(task *flushTask) {
 		}
 
 		if err := writer.Add(entry); err != nil {
-			writer.Abort()
+			if abortErr := writer.Abort(); abortErr != nil {
+				return
+			}
 			return
 		}
 
@@ -284,7 +286,9 @@ func (e *Engine) doFlush(task *flushTask) {
 	}
 
 	if err := iter.Close(); err != nil {
-		writer.Abort()
+		if abortErr := writer.Abort(); abortErr != nil {
+			return
+		}
 		return
 	}
 
@@ -311,7 +315,10 @@ func (e *Engine) doFlush(task *flushTask) {
 
 	// Clean up old WAL files
 	if task.walFileID > 0 {
-		e.walManager.CleanBefore(task.walFileID)
+		if err := e.walManager.CleanBefore(task.walFileID); err != nil {
+			e.mu.Unlock()
+			return
+		}
 	}
 	e.mu.Unlock()
 }
