@@ -13,10 +13,10 @@ func TestCompactionBasic(t *testing.T) {
 
 	// Configure to trigger compaction quickly
 	opts := DefaultOptions(dir)
-	opts.MemTableSize = 2048       // Small memtable
-	opts.L0CompactionTrigger = 2   // Compact after 2 L0 files
-	opts.L0StopWritesTrigger = 8   // Allow more L0 files before stall
-	opts.MaxMemTables = 8          // Allow more immutable tables
+	opts.MemTableSize = 2048         // Small memtable
+	opts.L0CompactionTrigger = 2     // Compact after 2 L0 files
+	opts.L0StopWritesTrigger = 8     // Allow more L0 files before stall
+	opts.MaxMemTables = 8            // Allow more immutable tables
 	opts.MaxBytesForLevelBase = 4096 // Small L1 target
 
 	e, err := Open(opts)

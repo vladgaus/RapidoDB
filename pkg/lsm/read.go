@@ -136,7 +136,7 @@ func (e *Engine) Iterator() *Iterator {
 	defer e.mu.RUnlock()
 
 	// Collect all iterators
-	var memIters []types.Iterator
+	memIters := make([]types.Iterator, 0, 1+len(e.immutableMemTables))
 
 	// Active MemTable iterator
 	memIters = append(memIters, e.memTable.NewIterator())

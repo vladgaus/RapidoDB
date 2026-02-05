@@ -42,7 +42,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		MaxTableFilesSize: 1024 * 1024 * 1024, // 1GB
-		TTLSeconds:        0,                   // No TTL
+		TTLSeconds:        0,                  // No TTL
 	}
 }
 

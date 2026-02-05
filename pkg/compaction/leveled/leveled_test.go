@@ -48,11 +48,11 @@ func TestTargetLevelSize(t *testing.T) {
 		level    int
 		expected int64
 	}{
-		{0, 0},                            // L0 uses file count
-		{1, 64 * 1024 * 1024},             // 64MB
-		{2, 640 * 1024 * 1024},            // 640MB
-		{3, 6400 * 1024 * 1024},           // 6.4GB
-		{4, 64000 * 1024 * 1024},          // 64GB
+		{0, 0},                   // L0 uses file count
+		{1, 64 * 1024 * 1024},    // 64MB
+		{2, 640 * 1024 * 1024},   // 640MB
+		{3, 6400 * 1024 * 1024},  // 6.4GB
+		{4, 64000 * 1024 * 1024}, // 64GB
 	}
 
 	for _, tt := range tests {

@@ -103,7 +103,7 @@ func (c *Compactor) RunCompaction(task *Task) error {
 	defer c.mu.Unlock()
 
 	// Collect all input files
-	var allInputs []*FileMetadata
+	allInputs := make([]*FileMetadata, 0, len(task.Inputs)+len(task.Overlapping))
 	allInputs = append(allInputs, task.Inputs...)
 	allInputs = append(allInputs, task.Overlapping...)
 
@@ -133,11 +133,11 @@ func (c *Compactor) RunCompaction(task *Task) error {
 	// Create merge iterator
 	oldestSnapshot := c.oldestSnapshot.Load()
 	mergeIter := NewCompactionIterator(iters, levels, fileNums, oldestSnapshot)
-	defer mergeIter.Close()
+	defer func() { _ = mergeIter.Close() }()
 
-	// Output files
-	var outputFiles []*FileMetadata
-	var outputReaders []*sstable.Reader
+	// Output files - pre-allocate with reasonable capacity
+	outputFiles := make([]*FileMetadata, 0, len(allInputs))
+	outputReaders := make([]*sstable.Reader, 0, len(allInputs))
 
 	// Cleanup on error
 	defer func() {
@@ -205,7 +205,9 @@ func (c *Compactor) RunCompaction(task *Task) error {
 		// Write entry
 		entry := mergeIter.Entry()
 		if err := writer.Add(entry); err != nil {
-			writer.Abort()
+			if abortErr := writer.Abort(); abortErr != nil {
+				return abortErr
+			}
 			return err
 		}
 
@@ -229,7 +231,9 @@ func (c *Compactor) RunCompaction(task *Task) error {
 
 	if mergeIter.Error() != nil {
 		if writer != nil {
-			writer.Abort()
+			if abortErr := writer.Abort(); abortErr != nil {
+				return abortErr
+			}
 		}
 		return mergeIter.Error()
 	}
