@@ -110,7 +110,7 @@ func (m *MemTable) Get(key []byte, maxSeqNum uint64) (*types.Entry, error) {
 }
 
 // NewIterator returns an iterator over all entries in sorted order.
-func (m *MemTable) NewIterator() types.Iterator {
+func (m *MemTable) NewIterator() *memTableIterator {
 	return &memTableIterator{
 		iter: m.sl.NewIterator(),
 	}
@@ -165,6 +165,11 @@ func (it *memTableIterator) Key() []byte {
 // Value returns the current value.
 func (it *memTableIterator) Value() []byte {
 	return it.iter.Value()
+}
+
+// Entry returns the current entry with full metadata.
+func (it *memTableIterator) Entry() *types.Entry {
+	return it.iter.Entry()
 }
 
 // Next advances the iterator to the next entry.
