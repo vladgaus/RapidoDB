@@ -91,7 +91,6 @@ type Engine struct {
 	flushChan   chan *flushTask
 	closeChan   chan struct{}
 	closeWg     sync.WaitGroup
-	flushWg     sync.WaitGroup
 	flushResult chan error
 
 	// State

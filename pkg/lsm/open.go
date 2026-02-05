@@ -100,7 +100,7 @@ func (e *Engine) loadSSTables() error {
 		return errors.NewIOError("readdir", e.sstDir, err)
 	}
 
-	var fileNums []uint64
+	fileNums := make([]uint64, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -162,9 +162,13 @@ func (e *Engine) recover() error {
 
 		// Apply entry to MemTable
 		if entry.Type == types.EntryTypeDelete {
-			e.memTable.Delete(entry.Key, entry.SeqNum)
+			if err := e.memTable.Delete(entry.Key, entry.SeqNum); err != nil {
+				return err
+			}
 		} else {
-			e.memTable.Put(entry.Key, entry.Value, entry.SeqNum)
+			if err := e.memTable.Put(entry.Key, entry.Value, entry.SeqNum); err != nil {
+				return err
+			}
 		}
 
 		// Track max sequence number
@@ -272,7 +276,7 @@ func (e *Engine) doFlush(task *flushTask) {
 		}
 
 		if err := writer.Add(entry); err != nil {
-			writer.Abort()
+			_ = writer.Abort()
 			return
 		}
 
@@ -280,7 +284,7 @@ func (e *Engine) doFlush(task *flushTask) {
 	}
 
 	if err := iter.Close(); err != nil {
-		writer.Abort()
+		_ = writer.Abort()
 		return
 	}
 
@@ -307,7 +311,7 @@ func (e *Engine) doFlush(task *flushTask) {
 
 	// Clean up old WAL files
 	if task.walFileID > 0 {
-		e.walManager.CleanBefore(task.walFileID)
+		_ = e.walManager.CleanBefore(task.walFileID)
 	}
 	e.mu.Unlock()
 }
