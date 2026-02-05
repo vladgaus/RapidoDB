@@ -162,7 +162,7 @@ rapidodb/
 | 4 | SSTable Writer | ✅ | Immutable file format |
 | 5 | SSTable Reader | ✅ | Read with sparse index |
 | 6 | Bloom Filters | ✅ | Fast negative lookups |
-| 7 | Basic LSM Engine | ⏳ | Combine MemTable + SSTable |
+| 7 | Basic LSM Engine | ✅ | Combine MemTable + SSTable |
 | 8 | Leveled Compaction | ⏳ | RocksDB-style compaction |
 | 9 | Tiered Compaction | ⏳ | Universal compaction |
 | 10 | FIFO Compaction | ⏳ | Time-based eviction |
