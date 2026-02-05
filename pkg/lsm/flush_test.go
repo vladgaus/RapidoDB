@@ -53,7 +53,7 @@ func TestEngineFlushToSSTable(t *testing.T) {
 
 	// Check that we have some SSTables
 	e.mu.RLock()
-	l0Count := len(e.l0Tables)
+	l0Count := e.levels.NumFiles(0)
 	e.mu.RUnlock()
 
 	// We should have at least one L0 table from flushing
@@ -273,7 +273,7 @@ func TestEngineReadFromSSTable(t *testing.T) {
 
 	// The memtable should be empty or near-empty
 	// since we recover from SST + WAL
-	t.Logf("After reopen: L0Tables=%d", len(e2.l0Tables))
+	t.Logf("After reopen: L0Tables=%d", e2.levels.NumFiles(0))
 
 	// Verify data is readable (either from SST or recovered WAL)
 	for i := 0; i < 10; i++ {

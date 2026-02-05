@@ -3,6 +3,7 @@ package lsm
 import (
 	"bytes"
 
+	"github.com/rapidodb/rapidodb/pkg/compaction"
 	"github.com/rapidodb/rapidodb/pkg/errors"
 	"github.com/rapidodb/rapidodb/pkg/types"
 )
@@ -57,17 +58,14 @@ func (e *Engine) getInternal(key []byte, readSeqNum uint64) ([]byte, error) {
 		}
 	}
 
-	// 3. Check L0 SSTables (newest to oldest)
-	for _, table := range e.l0Tables {
-		entry, err := table.Get(key)
+	// 3. Check SSTables via LevelManager
+	if e.levels != nil {
+		value, found, err := e.levels.Get(key)
 		if err != nil {
 			return nil, err
 		}
-		if entry != nil {
-			if entry.IsDeleted() {
-				return nil, nil // Key was deleted
-			}
-			return entry.Value, nil
+		if found {
+			return value, nil // value is nil for tombstones
 		}
 	}
 
@@ -138,7 +136,7 @@ func (e *Engine) Iterator() *Iterator {
 	defer e.mu.RUnlock()
 
 	// Collect all iterators
-	memIters := make([]types.Iterator, 0, 1+len(e.immutableMemTables))
+	var memIters []types.Iterator
 
 	// Active MemTable iterator
 	memIters = append(memIters, e.memTable.NewIterator())
@@ -456,6 +454,8 @@ type Stats struct {
 	L0TableCount       int
 	SeqNum             uint64
 	TotalKeyValuePairs int64
+	LevelStats         []compaction.LevelStats
+	CompactionStats    compaction.Stats
 }
 
 // Stats returns current engine statistics.
@@ -465,7 +465,6 @@ func (e *Engine) Stats() Stats {
 
 	stats := Stats{
 		ImmutableCount: len(e.immutableMemTables),
-		L0TableCount:   len(e.l0Tables),
 		SeqNum:         e.seqNum,
 	}
 
@@ -476,6 +475,15 @@ func (e *Engine) Stats() Stats {
 
 	for _, imm := range e.immutableMemTables {
 		stats.TotalKeyValuePairs += imm.EntryCount()
+	}
+
+	if e.levels != nil {
+		stats.L0TableCount = e.levels.NumFiles(0)
+		stats.LevelStats = e.levels.GetStats(e.opts.L0CompactionTrigger)
+	}
+
+	if e.compactor != nil {
+		stats.CompactionStats = e.compactor.Stats()
 	}
 
 	return stats

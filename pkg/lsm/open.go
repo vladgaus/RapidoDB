@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/rapidodb/rapidodb/pkg/compaction"
+	"github.com/rapidodb/rapidodb/pkg/compaction/leveled"
 	"github.com/rapidodb/rapidodb/pkg/errors"
 	"github.com/rapidodb/rapidodb/pkg/memtable"
 	"github.com/rapidodb/rapidodb/pkg/sstable"
@@ -46,10 +48,30 @@ func Open(opts Options) (*Engine, error) {
 	}
 	e.nextFileNum.Store(1)
 
+	// Initialize level manager
+	e.levels = compaction.NewLevelManager(sstDir, opts.BlockSize, opts.BloomBitsPerKey)
+	e.levels.SetLevelTargets(opts.MaxBytesForLevelBase, opts.MaxBytesForLevelMultiplier)
+
 	// Load existing SSTables
 	if err := e.loadSSTables(); err != nil {
 		return nil, err
 	}
+
+	// Create compaction strategy based on configuration
+	strategy := createStrategy(opts)
+
+	// Initialize compactor with the strategy
+	compactConfig := compaction.Config{
+		Strategy:                 opts.CompactionStrategy,
+		MaxBackgroundCompactions: opts.MaxBackgroundCompactions,
+		NumLevels:                opts.NumLevels,
+		L0CompactionTrigger:      opts.L0CompactionTrigger,
+		L0StopWritesTrigger:      opts.L0StopWritesTrigger,
+		BaseLevelSize:            opts.MaxBytesForLevelBase,
+		LevelSizeMultiplier:      opts.MaxBytesForLevelMultiplier,
+		TargetFileSizeBase:       opts.TargetFileSizeBase,
+	}
+	e.compactor = compaction.NewCompactor(e.levels, strategy, compactConfig, e.allocateFileNum)
 
 	// Initialize WAL manager
 	walOpts := wal.Options{
@@ -59,7 +81,7 @@ func Open(opts Options) (*Engine, error) {
 	}
 	walManager, err := wal.NewManager(walOpts)
 	if err != nil {
-		e.closeSSTables()
+		e.levels.Close()
 		return nil, err
 	}
 	e.walManager = walManager
@@ -67,14 +89,14 @@ func Open(opts Options) (*Engine, error) {
 	// Recover from WAL if exists
 	if err := e.recover(); err != nil {
 		walManager.Close()
-		e.closeSSTables()
+		e.levels.Close()
 		return nil, err
 	}
 
 	// Open new WAL for writes
 	if err := e.walManager.Open(0); err != nil {
 		walManager.Close()
-		e.closeSSTables()
+		e.levels.Close()
 		return nil, err
 	}
 
@@ -83,11 +105,51 @@ func Open(opts Options) (*Engine, error) {
 		e.memTable = memtable.NewMemTable(e.walManager.CurrentFileNum(), opts.MemTableSize)
 	}
 
-	// Start background flush worker
+	// Start background workers
 	e.closeWg.Add(1)
 	go e.flushWorker()
 
+	e.compactor.Start()
+
 	return e, nil
+}
+
+// createStrategy creates the appropriate compaction strategy.
+func createStrategy(opts Options) compaction.Strategy {
+	switch opts.CompactionStrategy {
+	case CompactionTiered:
+		// TODO: Implement in Step 9
+		// For now, fall back to leveled
+		return leveled.New(leveled.Config{
+			NumLevels:           opts.NumLevels,
+			L0CompactionTrigger: opts.L0CompactionTrigger,
+			L0StopWritesTrigger: opts.L0StopWritesTrigger,
+			BaseLevelSize:       opts.MaxBytesForLevelBase,
+			LevelSizeMultiplier: opts.MaxBytesForLevelMultiplier,
+			TargetFileSizeBase:  opts.TargetFileSizeBase,
+		})
+	case CompactionFIFO:
+		// TODO: Implement in Step 10
+		// For now, fall back to leveled
+		return leveled.New(leveled.Config{
+			NumLevels:           opts.NumLevels,
+			L0CompactionTrigger: opts.L0CompactionTrigger,
+			L0StopWritesTrigger: opts.L0StopWritesTrigger,
+			BaseLevelSize:       opts.MaxBytesForLevelBase,
+			LevelSizeMultiplier: opts.MaxBytesForLevelMultiplier,
+			TargetFileSizeBase:  opts.TargetFileSizeBase,
+		})
+	default:
+		// Leveled compaction (default)
+		return leveled.New(leveled.Config{
+			NumLevels:           opts.NumLevels,
+			L0CompactionTrigger: opts.L0CompactionTrigger,
+			L0StopWritesTrigger: opts.L0StopWritesTrigger,
+			BaseLevelSize:       opts.MaxBytesForLevelBase,
+			LevelSizeMultiplier: opts.MaxBytesForLevelMultiplier,
+			TargetFileSizeBase:  opts.TargetFileSizeBase,
+		})
+	}
 }
 
 // loadSSTables discovers and opens existing SSTable files.
@@ -100,7 +162,7 @@ func (e *Engine) loadSSTables() error {
 		return errors.NewIOError("readdir", e.sstDir, err)
 	}
 
-	fileNums := make([]uint64, 0, len(entries))
+	var fileNums []uint64
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -130,7 +192,9 @@ func (e *Engine) loadSSTables() error {
 		return fileNums[i] > fileNums[j]
 	})
 
-	// Open each SSTable
+	// Open each SSTable and add to L0
+	// TODO: In a real implementation, we would read level info from MANIFEST
+	// For now, we assume all existing files are in L0
 	for _, fileNum := range fileNums {
 		path := e.sstPath(fileNum)
 		reader, err := sstable.OpenReader(path)
@@ -138,18 +202,26 @@ func (e *Engine) loadSSTables() error {
 			// Log error but continue (skip corrupted files)
 			continue
 		}
-		e.l0Tables = append(e.l0Tables, reader)
+
+		// Get file info
+		info, err := os.Stat(path)
+		if err != nil {
+			reader.Close()
+			continue
+		}
+
+		meta := &compaction.FileMetadata{
+			FileNum: fileNum,
+			Level:   0, // Assume L0 for now
+			Size:    info.Size(),
+			MinKey:  reader.MinKey(),
+			MaxKey:  reader.MaxKey(),
+		}
+
+		e.levels.AddL0File(meta, reader)
 	}
 
 	return nil
-}
-
-// closeSSTables closes all open SSTable readers.
-func (e *Engine) closeSSTables() {
-	for _, t := range e.l0Tables {
-		t.Close()
-	}
-	e.l0Tables = nil
 }
 
 // recover replays the WAL to restore state.
@@ -162,13 +234,9 @@ func (e *Engine) recover() error {
 
 		// Apply entry to MemTable
 		if entry.Type == types.EntryTypeDelete {
-			if err := e.memTable.Delete(entry.Key, entry.SeqNum); err != nil {
-				return err
-			}
+			e.memTable.Delete(entry.Key, entry.SeqNum)
 		} else {
-			if err := e.memTable.Put(entry.Key, entry.Value, entry.SeqNum); err != nil {
-				return err
-			}
+			e.memTable.Put(entry.Key, entry.Value, entry.SeqNum)
 		}
 
 		// Track max sequence number
@@ -193,6 +261,11 @@ func (e *Engine) Close() error {
 		return nil // Already closed
 	}
 
+	// Stop compactor first
+	if e.compactor != nil {
+		e.compactor.Stop()
+	}
+
 	// Signal background workers to stop
 	close(e.closeChan)
 
@@ -213,8 +286,10 @@ func (e *Engine) Close() error {
 		walErr = e.walManager.Close()
 	}
 
-	// Close all SSTable readers
-	e.closeSSTables()
+	// Close level manager (closes all SSTable readers)
+	if e.levels != nil {
+		e.levels.Close()
+	}
 
 	return walErr
 }
@@ -264,6 +339,11 @@ func (e *Engine) doFlush(task *flushTask) {
 		return
 	}
 
+	// Track key range
+	var minKey, maxKey []byte
+	var minSeq, maxSeq uint64
+	var numKeys int64
+
 	// Iterate through MemTable and write to SSTable
 	iter := task.mem.NewIterator()
 	iter.SeekToFirst()
@@ -276,24 +356,33 @@ func (e *Engine) doFlush(task *flushTask) {
 		}
 
 		if err := writer.Add(entry); err != nil {
-			if abortErr := writer.Abort(); abortErr != nil {
-				return
-			}
+			writer.Abort()
 			return
 		}
+
+		// Track metadata
+		if minKey == nil {
+			minKey = append([]byte{}, entry.Key...)
+		}
+		maxKey = append(maxKey[:0], entry.Key...)
+		if minSeq == 0 || entry.SeqNum < minSeq {
+			minSeq = entry.SeqNum
+		}
+		if entry.SeqNum > maxSeq {
+			maxSeq = entry.SeqNum
+		}
+		numKeys++
 
 		iter.Next()
 	}
 
 	if err := iter.Close(); err != nil {
-		if abortErr := writer.Abort(); abortErr != nil {
-			return
-		}
+		writer.Abort()
 		return
 	}
 
 	// Finish writing SSTable
-	_, err = writer.Finish()
+	sstMeta, err := writer.Finish()
 	if err != nil {
 		return
 	}
@@ -305,22 +394,41 @@ func (e *Engine) doFlush(task *flushTask) {
 		return
 	}
 
-	// Add to L0 tables and remove from immutable list
+	// Create file metadata
+	meta := &compaction.FileMetadata{
+		FileNum: fileNum,
+		Level:   0,
+		Size:    int64(sstMeta.FileSize),
+		MinKey:  minKey,
+		MaxKey:  maxKey,
+		MinSeq:  minSeq,
+		MaxSeq:  maxSeq,
+		NumKeys: numKeys,
+	}
+
+	// Add to L0 and remove from immutable list
 	e.mu.Lock()
-	// Prepend new table (newest first)
-	e.l0Tables = append([]*sstable.Reader{reader}, e.l0Tables...)
+
+	// Add to level manager
+	e.levels.AddL0File(meta, reader)
 
 	// Remove the flushed MemTable from immutable list
 	e.removeImmutableMemTableLocked(task.mem)
 
 	// Clean up old WAL files
 	if task.walFileID > 0 {
-		if err := e.walManager.CleanBefore(task.walFileID); err != nil {
-			e.mu.Unlock()
-			return
-		}
+		e.walManager.CleanBefore(task.walFileID)
 	}
+
+	// Check if compaction is needed
+	needsCompaction := e.compactor != nil && e.compactor.ShouldTriggerCompaction()
+
 	e.mu.Unlock()
+
+	// Trigger compaction if needed
+	if needsCompaction {
+		e.compactor.TriggerCompaction()
+	}
 }
 
 // removeImmutableMemTable removes a MemTable from the immutable list.
