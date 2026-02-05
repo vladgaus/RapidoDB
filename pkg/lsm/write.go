@@ -142,9 +142,10 @@ func (e *Engine) rotateMemTable() error {
 // Returns ErrWriteStall if too many immutable MemTables or L0 files exist.
 // Caller must hold e.mu.
 func (e *Engine) checkWriteStall() error {
-	// Check L0 file count first (more severe)
-	if len(e.l0Tables) >= e.opts.L0StopWritesTrigger {
-		// TODO: Trigger compaction (Step 8)
+	// Check if compactor says we should stall
+	if e.compactor != nil && e.compactor.ShouldStallWrites() {
+		// Trigger compaction
+		e.compactor.TriggerCompaction()
 		return ErrWriteStall
 	}
 
@@ -156,6 +157,11 @@ func (e *Engine) checkWriteStall() error {
 		if len(e.immutableMemTables) > e.opts.MaxMemTables {
 			return ErrWriteStall
 		}
+	}
+
+	// Trigger compaction if needed
+	if e.compactor != nil && e.compactor.ShouldTriggerCompaction() {
+		e.compactor.TriggerCompaction()
 	}
 
 	return nil
