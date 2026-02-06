@@ -141,7 +141,7 @@ func (s *Strategy) pickTTLExpiredFiles(levels *compaction.LevelManager) *compact
 	now := time.Now().Unix()
 	cutoffSeq := uint64(now - s.config.TTLSeconds)
 
-	var expiredFiles []*compaction.FileMetadata
+	expiredFiles := make([]*compaction.FileMetadata, 0, s.config.MaxFilesToDeletePerCycle)
 	for _, f := range allFiles {
 		// Use MaxSeq as proxy for file creation time
 		if f.MaxSeq > 0 && f.MaxSeq < cutoffSeq {
@@ -180,7 +180,7 @@ func (s *Strategy) pickSizeBasedDeletion(levels *compaction.LevelManager) *compa
 	// Calculate how much we need to delete
 	excessSize := totalSize - s.config.MaxTableFilesSize
 
-	var filesToDelete []*compaction.FileMetadata
+	filesToDelete := make([]*compaction.FileMetadata, 0, s.config.MaxFilesToDeletePerCycle)
 	var deletedSize int64
 
 	for _, f := range allFiles {
@@ -209,8 +209,13 @@ func (s *Strategy) pickSizeBasedDeletion(levels *compaction.LevelManager) *compa
 
 // getAllFilesSortedByAge returns all files sorted oldest first.
 func (s *Strategy) getAllFilesSortedByAge(levels *compaction.LevelManager) []*compaction.FileMetadata {
-	var allFiles []*compaction.FileMetadata
+	// Count total files first
+	totalFiles := 0
+	for level := 0; level < compaction.MaxLevels; level++ {
+		totalFiles += levels.NumFiles(level)
+	}
 
+	allFiles := make([]*compaction.FileMetadata, 0, totalFiles)
 	for level := 0; level < compaction.MaxLevels; level++ {
 		files := levels.LevelFiles(level)
 		allFiles = append(allFiles, files...)
