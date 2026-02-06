@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"github.com/rapidodb/rapidodb/pkg/compaction"
+	"github.com/rapidodb/rapidodb/pkg/compaction/fifo"
 	"github.com/rapidodb/rapidodb/pkg/compaction/leveled"
+	"github.com/rapidodb/rapidodb/pkg/compaction/tiered"
 	"github.com/rapidodb/rapidodb/pkg/errors"
 	"github.com/rapidodb/rapidodb/pkg/memtable"
 	"github.com/rapidodb/rapidodb/pkg/sstable"
@@ -118,26 +120,21 @@ func Open(opts Options) (*Engine, error) {
 func createStrategy(opts Options) compaction.Strategy {
 	switch opts.CompactionStrategy {
 	case CompactionTiered:
-		// TODO: Implement in Step 9
-		// For now, fall back to leveled
-		return leveled.New(leveled.Config{
-			NumLevels:           opts.NumLevels,
-			L0CompactionTrigger: opts.L0CompactionTrigger,
-			L0StopWritesTrigger: opts.L0StopWritesTrigger,
-			BaseLevelSize:       opts.MaxBytesForLevelBase,
-			LevelSizeMultiplier: opts.MaxBytesForLevelMultiplier,
-			TargetFileSizeBase:  opts.TargetFileSizeBase,
+		return tiered.New(tiered.Config{
+			MinMergeWidth:               4,
+			MaxMergeWidth:               32,
+			SizeRatio:                   4.0,
+			BaseBucketSize:              opts.TargetFileSizeBase, // Use target file size as base
+			MaxBuckets:                  10,
+			MaxSizeAmplificationPercent: 200,
+			L0StopWritesTrigger:         opts.L0StopWritesTrigger,
 		})
 	case CompactionFIFO:
-		// TODO: Implement in Step 10
-		// For now, fall back to leveled
-		return leveled.New(leveled.Config{
-			NumLevels:           opts.NumLevels,
-			L0CompactionTrigger: opts.L0CompactionTrigger,
-			L0StopWritesTrigger: opts.L0StopWritesTrigger,
-			BaseLevelSize:       opts.MaxBytesForLevelBase,
-			LevelSizeMultiplier: opts.MaxBytesForLevelMultiplier,
-			TargetFileSizeBase:  opts.TargetFileSizeBase,
+		return fifo.New(fifo.Config{
+			MaxTableFilesSize:        opts.MaxBytesForLevelBase * 10, // Use 10x base level size
+			TTLSeconds:               0,                              // No TTL by default
+			MaxFilesToDeletePerCycle: 10,
+			L0StopWritesTrigger:      opts.L0StopWritesTrigger,
 		})
 	default:
 		// Leveled compaction (default)

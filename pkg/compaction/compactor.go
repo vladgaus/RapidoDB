@@ -102,6 +102,40 @@ func (c *Compactor) RunCompaction(task *Task) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Check for FIFO deletion task (TargetLevel == -1)
+	if task.TargetLevel == -1 {
+		return c.runDeletion(task)
+	}
+
+	// Regular compaction: merge files
+	return c.runMergeCompaction(task)
+}
+
+// runDeletion handles FIFO-style deletion (no merging).
+func (c *Compactor) runDeletion(task *Task) error {
+	if len(task.Inputs) == 0 {
+		return nil
+	}
+
+	// Simply remove the files from the level manager and delete them
+	for _, meta := range task.Inputs {
+		c.levels.RemoveFile(meta)
+
+		// Delete the physical file
+		path := filepath.Join(c.levels.SSTDir(), fmt.Sprintf("%06d.sst", meta.FileNum))
+		os.Remove(path) // Ignore errors
+
+		// Update statistics
+		c.stats.BytesRead += meta.Size
+		c.stats.FilesRead++
+	}
+
+	c.stats.CompactionsRun++
+	return nil
+}
+
+// runMergeCompaction handles regular merge compaction.
+func (c *Compactor) runMergeCompaction(task *Task) error {
 	// Collect all input files
 	allInputs := make([]*FileMetadata, 0, len(task.Inputs)+len(task.Overlapping))
 	allInputs = append(allInputs, task.Inputs...)
@@ -133,11 +167,11 @@ func (c *Compactor) RunCompaction(task *Task) error {
 	// Create merge iterator
 	oldestSnapshot := c.oldestSnapshot.Load()
 	mergeIter := NewCompactionIterator(iters, levels, fileNums, oldestSnapshot)
-	defer func() { _ = mergeIter.Close() }()
+	defer mergeIter.Close()
 
-	// Output files - pre-allocate with reasonable capacity
-	outputFiles := make([]*FileMetadata, 0, len(allInputs))
-	outputReaders := make([]*sstable.Reader, 0, len(allInputs))
+	// Output files
+	var outputFiles []*FileMetadata
+	var outputReaders []*sstable.Reader
 
 	// Cleanup on error
 	defer func() {
@@ -230,10 +264,8 @@ func (c *Compactor) RunCompaction(task *Task) error {
 	}
 
 	if mergeIter.Error() != nil {
-		if writer != nil {
-			if abortErr := writer.Abort(); abortErr != nil {
-				return abortErr
-			}
+		if abortErr := writer.Abort(); abortErr != nil {
+			return abortErr
 		}
 		return mergeIter.Error()
 	}

@@ -164,8 +164,8 @@ rapidodb/
 | 6 | Bloom Filters | ✅ | Fast negative lookups |
 | 7 | Basic LSM Engine | ✅ | Combine MemTable + SSTable |
 | 8 | Leveled Compaction | ✅ | RocksDB-style compaction |
-| 9 | Tiered Compaction | ⏳ | Universal compaction |
-| 10 | FIFO Compaction | ⏳ | Time-based eviction |
+| 9 | Tiered Compaction | ✅ | Universal compaction |
+| 10 | FIFO Compaction | ✅ | Time-based eviction |
 | 11 | MVCC & Snapshots | ⏳ | Multi-version concurrency |
 | 12 | Manifest & Recovery | ⏳ | Crash recovery |
 | 13 | Iterators | ⏳ | Range scans |

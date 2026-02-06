@@ -157,9 +157,9 @@ type Config struct {
 	TargetFileSizeBase  int64
 
 	// Tiered compaction settings (Step 9)
-	MinMergeWidth        int
-	MaxMergeWidth        int
-	SizeRatio            float64
+	MinMergeWidth      int
+	MaxMergeWidth      int
+	SizeRatio          float64
 	MaxSizeAmplification float64
 
 	// FIFO compaction settings (Step 10)
@@ -183,7 +183,7 @@ func DefaultConfig() Config {
 		SizeRatio:                1.0,
 		MaxSizeAmplification:     200,
 		MaxTableFilesSize:        1024 * 1024 * 1024, // 1GB
-		TTLSeconds:               0,                  // No TTL by default
+		TTLSeconds:               0,                   // No TTL by default
 	}
 }
 
