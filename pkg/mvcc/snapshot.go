@@ -86,7 +86,7 @@ func (h snapshotHeap) Swap(i, j int) {
 
 func (h *snapshotHeap) Push(x any) {
 	n := len(*h)
-	snap := x.(*ManagedSnapshot) //nolint:forcetypeassert
+	snap := x.(*ManagedSnapshot) //nolint:errcheck
 	snap.index = n
 	*h = append(*h, snap)
 }
