@@ -49,7 +49,7 @@ func TestNewStrategyWithZeroConfig(t *testing.T) {
 func TestConfigRetrieval(t *testing.T) {
 	config := Config{
 		MaxTableFilesSize:        512 * 1024 * 1024, // 512MB
-		TTLSeconds:               3600,               // 1 hour
+		TTLSeconds:               3600,              // 1 hour
 		MaxFilesToDeletePerCycle: 5,
 		L0StopWritesTrigger:      50,
 	}
@@ -168,9 +168,9 @@ func TestGetStatsEmpty(t *testing.T) {
 func TestSizeBasedDeletionConfig(t *testing.T) {
 	// Test different size limits
 	sizes := []int64{
-		100 * 1024 * 1024,  // 100MB
-		500 * 1024 * 1024,  // 500MB
-		1024 * 1024 * 1024, // 1GB
+		100 * 1024 * 1024,      // 100MB
+		500 * 1024 * 1024,      // 500MB
+		1024 * 1024 * 1024,     // 1GB
 		5 * 1024 * 1024 * 1024, // 5GB
 	}
 

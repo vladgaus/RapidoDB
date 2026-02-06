@@ -86,12 +86,12 @@ func TestBucketMaxSize(t *testing.T) {
 		bucketID int
 		expected int64
 	}{
-		{0, 1024},         // 1KB
-		{1, 4096},         // 4KB
-		{2, 16384},        // 16KB
-		{3, 65536},        // 64KB
-		{4, 262144},       // 256KB
-		{5, 1048576},      // 1MB
+		{0, 1024},    // 1KB
+		{1, 4096},    // 4KB
+		{2, 16384},   // 16KB
+		{3, 65536},   // 64KB
+		{4, 262144},  // 256KB
+		{5, 1048576}, // 1MB
 	}
 
 	for _, tt := range tests {

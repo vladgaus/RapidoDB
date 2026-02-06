@@ -17,8 +17,8 @@
 //	└─────────────────────────────────────────────────────────┘
 //
 // Deletion triggers:
-//   1. Total size exceeds MaxTableFilesSize
-//   2. File age exceeds TTLSeconds (if TTL is enabled)
+//  1. Total size exceeds MaxTableFilesSize
+//  2. File age exceeds TTLSeconds (if TTL is enabled)
 //
 // Characteristics:
 //   - ZERO write amplification (no merging!)
@@ -81,7 +81,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		MaxTableFilesSize:        1024 * 1024 * 1024, // 1GB
-		TTLSeconds:               0,                   // No TTL by default
+		TTLSeconds:               0,                  // No TTL by default
 		MaxFilesToDeletePerCycle: 10,
 		L0StopWritesTrigger:      100,
 	}
