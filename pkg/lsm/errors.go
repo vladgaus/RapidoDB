@@ -27,4 +27,7 @@ var (
 
 	// ErrCorruption is returned when data corruption is detected.
 	ErrCorruption = errors.New("lsm: data corruption")
+
+	// ErrSnapshotReleased is returned when using a released snapshot.
+	ErrSnapshotReleased = errors.New("lsm: snapshot has been released")
 )

@@ -5,6 +5,7 @@ import (
 
 	"github.com/rapidodb/rapidodb/pkg/compaction"
 	"github.com/rapidodb/rapidodb/pkg/errors"
+	"github.com/rapidodb/rapidodb/pkg/mvcc"
 	"github.com/rapidodb/rapidodb/pkg/types"
 )
 
@@ -83,24 +84,50 @@ func (e *Engine) Has(key []byte) (bool, error) {
 }
 
 // Snapshot creates a point-in-time snapshot for consistent reads.
+// The returned snapshot MUST be released via Release() when no longer needed
+// to allow garbage collection of old versions.
+//
+// Example usage:
+//
+//	snap := engine.Snapshot()
+//	defer snap.Release()
+//	value, _ := snap.Get(key)
 func (e *Engine) Snapshot() *Snapshot {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
+	// Create a managed snapshot that's tracked for GC
+	managed := e.snapshots.CreateSnapshot()
+
 	return &Snapshot{
-		engine: e,
-		seqNum: e.seqNum,
+		engine:  e,
+		managed: managed,
 	}
 }
 
+// GetSnapshot is an alias for Snapshot() - creates a point-in-time view.
+func (e *Engine) GetSnapshot() *Snapshot {
+	return e.Snapshot()
+}
+
 // Snapshot represents a point-in-time view of the database.
+// It provides a consistent read view: all reads through a snapshot
+// see the database state at the time the snapshot was created.
+//
+// Snapshots prevent garbage collection of versions they might need,
+// so always release them when done.
 type Snapshot struct {
-	engine *Engine
-	seqNum uint64
+	engine  *Engine
+	managed *mvcc.ManagedSnapshot
 }
 
 // Get retrieves a value as of the snapshot time.
 func (s *Snapshot) Get(key []byte) ([]byte, error) {
+	// Check if released
+	if s.managed.IsReleased() {
+		return nil, ErrSnapshotReleased
+	}
+
 	// Validate key
 	if err := errors.ValidateKey(key); err != nil {
 		return nil, err
@@ -113,7 +140,7 @@ func (s *Snapshot) Get(key []byte) ([]byte, error) {
 		return nil, ErrClosed
 	}
 
-	return s.engine.getInternal(key, s.seqNum)
+	return s.engine.getInternal(key, s.managed.SeqNum())
 }
 
 // Has checks if a key exists at the snapshot time.
@@ -127,7 +154,19 @@ func (s *Snapshot) Has(key []byte) (bool, error) {
 
 // SeqNum returns the sequence number of the snapshot.
 func (s *Snapshot) SeqNum() uint64 {
-	return s.seqNum
+	return s.managed.SeqNum()
+}
+
+// Release releases the snapshot, allowing GC of old versions.
+// After release, the snapshot should not be used for reads.
+// Safe to call multiple times.
+func (s *Snapshot) Release() {
+	s.managed.Release()
+}
+
+// IsReleased returns true if the snapshot has been released.
+func (s *Snapshot) IsReleased() bool {
+	return s.managed.IsReleased()
 }
 
 // Iterator returns an iterator over all key-value pairs.
@@ -456,6 +495,10 @@ type Stats struct {
 	TotalKeyValuePairs int64
 	LevelStats         []compaction.LevelStats
 	CompactionStats    compaction.Stats
+
+	// MVCC stats
+	ActiveSnapshots int    // Number of active (unreleased) snapshots
+	OldestSnapshot  uint64 // Sequence number of oldest active snapshot
 }
 
 // Stats returns current engine statistics.
@@ -484,6 +527,12 @@ func (e *Engine) Stats() Stats {
 
 	if e.compactor != nil {
 		stats.CompactionStats = e.compactor.Stats()
+	}
+
+	// MVCC snapshot stats
+	if e.snapshots != nil {
+		stats.ActiveSnapshots = e.snapshots.NumSnapshots()
+		stats.OldestSnapshot = e.snapshots.GetOldestSeq()
 	}
 
 	return stats
