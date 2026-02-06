@@ -53,6 +53,7 @@ import (
 
 	"github.com/rapidodb/rapidodb/pkg/compaction"
 	"github.com/rapidodb/rapidodb/pkg/memtable"
+	"github.com/rapidodb/rapidodb/pkg/mvcc"
 	"github.com/rapidodb/rapidodb/pkg/wal"
 )
 
@@ -83,6 +84,9 @@ type Engine struct {
 	// Compactor with pluggable strategy
 	compactor *compaction.Compactor
 
+	// MVCC snapshot manager for tracking active snapshots
+	snapshots *mvcc.SnapshotManager
+
 	// Sequence number for MVCC
 	seqNum uint64
 
@@ -93,6 +97,7 @@ type Engine struct {
 	flushChan   chan *flushTask
 	closeChan   chan struct{}
 	closeWg     sync.WaitGroup
+	flushWg     sync.WaitGroup
 	flushResult chan error
 
 	// State
