@@ -52,6 +52,9 @@ func (e *Engine) Put(key, value []byte) error {
 		return err
 	}
 
+	// Update snapshot manager's current sequence
+	e.snapshots.SetCurrentSeq(seqNum)
+
 	// Check if MemTable needs rotation
 	if e.memTable.ShouldFlush() {
 		if err := e.rotateMemTable(); err != nil {
@@ -104,6 +107,9 @@ func (e *Engine) Delete(key []byte) error {
 		e.seqNum-- // Rollback sequence number
 		return err
 	}
+
+	// Update snapshot manager's current sequence
+	e.snapshots.SetCurrentSeq(seqNum)
 
 	// Check if MemTable needs rotation
 	if e.memTable.ShouldFlush() {

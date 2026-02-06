@@ -166,7 +166,7 @@ rapidodb/
 | 8 | Leveled Compaction | ✅ | RocksDB-style compaction |
 | 9 | Tiered Compaction | ✅ | Universal compaction |
 | 10 | FIFO Compaction | ✅ | Time-based eviction |
-| 11 | MVCC & Snapshots | ⏳ | Multi-version concurrency |
+| 11 | MVCC & Snapshots | ✅ | Multi-version concurrency |
 | 12 | Manifest & Recovery | ⏳ | Crash recovery |
 | 13 | Iterators | ⏳ | Range scans |
 | 14 | TCP Server | ⏳ | Memcached protocol |

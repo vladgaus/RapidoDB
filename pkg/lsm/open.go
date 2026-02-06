@@ -13,6 +13,7 @@ import (
 	"github.com/rapidodb/rapidodb/pkg/compaction/tiered"
 	"github.com/rapidodb/rapidodb/pkg/errors"
 	"github.com/rapidodb/rapidodb/pkg/memtable"
+	"github.com/rapidodb/rapidodb/pkg/mvcc"
 	"github.com/rapidodb/rapidodb/pkg/sstable"
 	"github.com/rapidodb/rapidodb/pkg/types"
 	"github.com/rapidodb/rapidodb/pkg/wal"
@@ -50,6 +51,9 @@ func Open(opts Options) (*Engine, error) {
 	}
 	e.nextFileNum.Store(1)
 
+	// Initialize MVCC snapshot manager
+	e.snapshots = mvcc.NewSnapshotManager()
+
 	// Initialize level manager
 	e.levels = compaction.NewLevelManager(sstDir, opts.BlockSize, opts.BloomBitsPerKey)
 	e.levels.SetLevelTargets(opts.MaxBytesForLevelBase, opts.MaxBytesForLevelMultiplier)
@@ -74,6 +78,11 @@ func Open(opts Options) (*Engine, error) {
 		TargetFileSizeBase:       opts.TargetFileSizeBase,
 	}
 	e.compactor = compaction.NewCompactor(e.levels, strategy, compactConfig, e.allocateFileNum)
+
+	// Wire up snapshot manager callback to update compactor's oldest snapshot
+	e.snapshots.SetOldestChangeCallback(func(oldestSeq uint64) {
+		e.compactor.SetOldestSnapshot(oldestSeq)
+	})
 
 	// Initialize WAL manager
 	walOpts := wal.Options{
@@ -106,6 +115,9 @@ func Open(opts Options) (*Engine, error) {
 	if e.memTable == nil {
 		e.memTable = memtable.NewMemTable(e.walManager.CurrentFileNum(), opts.MemTableSize)
 	}
+
+	// Sync sequence number with snapshot manager
+	e.snapshots.SetCurrentSeq(e.seqNum)
 
 	// Start background workers
 	e.closeWg.Add(1)
