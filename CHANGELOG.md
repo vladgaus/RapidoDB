@@ -17,13 +17,12 @@ RapidoDB follows a milestone-based versioning during development:
 | 0.4.x | Bloom Filters |
 | 0.5.x | Basic LSM Engine |
 | 0.6.x | Leveled Compaction |
-| 0.7.x | Tiered Compaction |
-| 0.8.x | FIFO Compaction |
-| 0.9.x | MVCC & Snapshots |
-| 0.10.x | Manifest & Recovery |
-| 0.11.x | Iterators & Range Scans |
-| 0.12.x | TCP Server (Memcached Protocol) |
-| 0.13.x | Benchmarks & Monitoring |
+| 0.7.x | Tiered and FIFO Compaction |
+| 0.8.x | MVCC & Snapshots |
+| 0.9.x | Manifest & Recovery |
+| 0.10.x | Iterators & Range Scans |
+| 0.11.x | TCP Server (Memcached Protocol) |
+| 0.12.x | Benchmarks & Monitoring |
 | 1.0.0 | Production Ready |
 
 ---
