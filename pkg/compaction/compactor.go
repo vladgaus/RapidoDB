@@ -104,7 +104,8 @@ func (c *Compactor) RunCompaction(task *Task) error {
 
 	// Check for FIFO deletion task (TargetLevel == -1)
 	if task.TargetLevel == -1 {
-		return c.runDeletion(task)
+		c.runDeletion(task)
+		return nil
 	}
 
 	// Regular compaction: merge files
@@ -112,9 +113,9 @@ func (c *Compactor) RunCompaction(task *Task) error {
 }
 
 // runDeletion handles FIFO-style deletion (no merging).
-func (c *Compactor) runDeletion(task *Task) error {
+func (c *Compactor) runDeletion(task *Task) {
 	if len(task.Inputs) == 0 {
-		return nil
+		return
 	}
 
 	// Simply remove the files from the level manager and delete them
@@ -123,7 +124,7 @@ func (c *Compactor) runDeletion(task *Task) error {
 
 		// Delete the physical file
 		path := filepath.Join(c.levels.SSTDir(), fmt.Sprintf("%06d.sst", meta.FileNum))
-		os.Remove(path) // Ignore errors
+		_ = os.Remove(path)
 
 		// Update statistics
 		c.stats.BytesRead += meta.Size
@@ -131,7 +132,6 @@ func (c *Compactor) runDeletion(task *Task) error {
 	}
 
 	c.stats.CompactionsRun++
-	return nil
 }
 
 // runMergeCompaction handles regular merge compaction.
@@ -169,9 +169,9 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 	mergeIter := NewCompactionIterator(iters, levels, fileNums, oldestSnapshot)
 	defer mergeIter.Close()
 
-	// Output files
-	var outputFiles []*FileMetadata
-	var outputReaders []*sstable.Reader
+	// Output files - estimate based on input count
+	outputFiles := make([]*FileMetadata, 0, len(allInputs))
+	outputReaders := make([]*sstable.Reader, 0, len(allInputs))
 
 	// Cleanup on error
 	defer func() {
