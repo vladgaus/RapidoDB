@@ -282,8 +282,8 @@ func TestCompactionStrategySelection(t *testing.T) {
 	// Test that we can select different strategies
 	strategies := []CompactionStrategy{
 		CompactionLeveled,
-		CompactionTiered, // Will fall back to leveled for now
-		CompactionFIFO,   // Will fall back to leveled for now
+		CompactionTiered,
+		CompactionFIFO,
 	}
 
 	for _, strategy := range strategies {
@@ -354,5 +354,198 @@ func BenchmarkGetWithCompaction(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		e.Get(keys[i%1000])
+	}
+}
+
+func TestTieredCompactionBasic(t *testing.T) {
+	dir := tempDir(t)
+
+	opts := DefaultOptions(dir)
+	opts.CompactionStrategy = CompactionTiered
+	opts.MemTableSize = 2048
+	opts.MaxMemTables = 8
+	opts.L0StopWritesTrigger = 20
+
+	e, err := Open(opts)
+	if err != nil {
+		t.Fatalf("failed to open engine: %v", err)
+	}
+	defer e.Close()
+
+	// Write data to trigger compaction
+	n := 50
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%05d", i))
+		value := bytes.Repeat([]byte("v"), 50)
+		if err := putWithRetry(e, key, value, 100); err != nil {
+			t.Fatalf("put failed at %d: %v", i, err)
+		}
+	}
+
+	// Wait for flush and compaction
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify all data is readable
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%05d", i))
+		got, err := e.Get(key)
+		if err != nil {
+			t.Fatalf("get failed for %d: %v", i, err)
+		}
+		if len(got) != 50 {
+			t.Errorf("value length mismatch for %d: got %d, want 50", i, len(got))
+		}
+	}
+
+	stats := e.Stats()
+	t.Logf("Tiered compaction stats: L0=%d, Compactions=%d",
+		stats.L0TableCount, stats.CompactionStats.CompactionsRun)
+}
+
+func TestFIFOCompactionBasic(t *testing.T) {
+	dir := tempDir(t)
+
+	opts := DefaultOptions(dir)
+	opts.CompactionStrategy = CompactionFIFO
+	opts.MemTableSize = 2048
+	opts.MaxMemTables = 8
+	opts.L0StopWritesTrigger = 50
+	opts.MaxBytesForLevelBase = 10 * 1024 // Small limit for testing (100KB total)
+
+	e, err := Open(opts)
+	if err != nil {
+		t.Fatalf("failed to open engine: %v", err)
+	}
+	defer e.Close()
+
+	// Write data
+	n := 30
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%05d", i))
+		value := bytes.Repeat([]byte("v"), 50)
+		if err := putWithRetry(e, key, value, 100); err != nil {
+			t.Fatalf("put failed at %d: %v", i, err)
+		}
+	}
+
+	// Wait for flush
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify recent data is readable
+	// Note: In FIFO mode, older data may be deleted
+	readableCount := 0
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%05d", i))
+		got, err := e.Get(key)
+		if err != nil {
+			t.Fatalf("get error for %d: %v", i, err)
+		}
+		if got != nil {
+			readableCount++
+		}
+	}
+
+	t.Logf("FIFO: %d/%d keys readable", readableCount, n)
+
+	stats := e.Stats()
+	t.Logf("FIFO compaction stats: L0=%d, Compactions=%d",
+		stats.L0TableCount, stats.CompactionStats.CompactionsRun)
+}
+
+func TestTieredCompactionOverwrites(t *testing.T) {
+	dir := tempDir(t)
+
+	opts := DefaultOptions(dir)
+	opts.CompactionStrategy = CompactionTiered
+	opts.MemTableSize = 2048
+	opts.MaxMemTables = 8
+	opts.L0StopWritesTrigger = 20
+
+	e, err := Open(opts)
+	if err != nil {
+		t.Fatalf("failed to open engine: %v", err)
+	}
+	defer e.Close()
+
+	// Write initial values
+	n := 20
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%05d", i))
+		value := []byte(fmt.Sprintf("value-v1-%05d", i))
+		if err := putWithRetry(e, key, value, 100); err != nil {
+			t.Fatalf("put failed: %v", err)
+		}
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Overwrite with new values
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%05d", i))
+		value := []byte(fmt.Sprintf("value-v2-%05d", i))
+		if err := putWithRetry(e, key, value, 100); err != nil {
+			t.Fatalf("put failed: %v", err)
+		}
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify latest values
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%05d", i))
+		expected := []byte(fmt.Sprintf("value-v2-%05d", i))
+
+		got, err := e.Get(key)
+		if err != nil {
+			t.Fatalf("get failed for %d: %v", i, err)
+		}
+		if !bytes.Equal(got, expected) {
+			t.Errorf("value mismatch for %d: got %q, want %q", i, got, expected)
+		}
+	}
+}
+
+func TestCompactionStrategySwitch(t *testing.T) {
+	dir := tempDir(t)
+
+	// Start with leveled
+	opts := DefaultOptions(dir)
+	opts.CompactionStrategy = CompactionLeveled
+	opts.MemTableSize = 2048
+
+	e1, err := Open(opts)
+	if err != nil {
+		t.Fatalf("failed to open engine: %v", err)
+	}
+
+	// Write some data
+	for i := 0; i < 20; i++ {
+		key := []byte(fmt.Sprintf("key%05d", i))
+		value := []byte(fmt.Sprintf("value%05d", i))
+		e1.Put(key, value)
+	}
+	e1.Sync()
+	e1.Close()
+
+	// Reopen with tiered strategy
+	opts.CompactionStrategy = CompactionTiered
+	e2, err := Open(opts)
+	if err != nil {
+		t.Fatalf("failed to reopen with tiered: %v", err)
+	}
+	defer e2.Close()
+
+	// Verify data is still readable
+	for i := 0; i < 20; i++ {
+		key := []byte(fmt.Sprintf("key%05d", i))
+		expected := []byte(fmt.Sprintf("value%05d", i))
+
+		got, err := e2.Get(key)
+		if err != nil {
+			t.Fatalf("get failed: %v", err)
+		}
+		if !bytes.Equal(got, expected) {
+			t.Errorf("mismatch for %d", i)
+		}
 	}
 }

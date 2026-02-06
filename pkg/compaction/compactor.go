@@ -102,6 +102,40 @@ func (c *Compactor) RunCompaction(task *Task) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Check for FIFO deletion task (TargetLevel == -1)
+	if task.TargetLevel == -1 {
+		c.runDeletion(task)
+		return nil
+	}
+
+	// Regular compaction: merge files
+	return c.runMergeCompaction(task)
+}
+
+// runDeletion handles FIFO-style deletion (no merging).
+func (c *Compactor) runDeletion(task *Task) {
+	if len(task.Inputs) == 0 {
+		return
+	}
+
+	// Simply remove the files from the level manager and delete them
+	for _, meta := range task.Inputs {
+		c.levels.RemoveFile(meta)
+
+		// Delete the physical file
+		path := filepath.Join(c.levels.SSTDir(), fmt.Sprintf("%06d.sst", meta.FileNum))
+		_ = os.Remove(path)
+
+		// Update statistics
+		c.stats.BytesRead += meta.Size
+		c.stats.FilesRead++
+	}
+
+	c.stats.CompactionsRun++
+}
+
+// runMergeCompaction handles regular merge compaction.
+func (c *Compactor) runMergeCompaction(task *Task) error {
 	// Collect all input files
 	allInputs := make([]*FileMetadata, 0, len(task.Inputs)+len(task.Overlapping))
 	allInputs = append(allInputs, task.Inputs...)
@@ -133,9 +167,9 @@ func (c *Compactor) RunCompaction(task *Task) error {
 	// Create merge iterator
 	oldestSnapshot := c.oldestSnapshot.Load()
 	mergeIter := NewCompactionIterator(iters, levels, fileNums, oldestSnapshot)
-	defer func() { _ = mergeIter.Close() }()
+	defer mergeIter.Close()
 
-	// Output files - pre-allocate with reasonable capacity
+	// Output files - estimate based on input count
 	outputFiles := make([]*FileMetadata, 0, len(allInputs))
 	outputReaders := make([]*sstable.Reader, 0, len(allInputs))
 
@@ -230,10 +264,8 @@ func (c *Compactor) RunCompaction(task *Task) error {
 	}
 
 	if mergeIter.Error() != nil {
-		if writer != nil {
-			if abortErr := writer.Abort(); abortErr != nil {
-				return abortErr
-			}
+		if abortErr := writer.Abort(); abortErr != nil {
+			return abortErr
 		}
 		return mergeIter.Error()
 	}
