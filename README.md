@@ -169,7 +169,7 @@ rapidodb/
 | 11 | MVCC & Snapshots | ✅ | Multi-version concurrency |
 | 12 | Manifest & Recovery | ✅ | Crash recovery |
 | 13 | Iterators | ✅ | Range scans |
-| 14 | TCP Server | ⏳ | Memcached protocol |
+| 14 | TCP Server | ✅ | Memcached protocol |
 | 15 | Benchmarks | ⏳ | Performance testing |
 
 ## 🔧 Configuration

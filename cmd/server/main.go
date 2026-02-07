@@ -10,6 +10,8 @@ import (
 	"syscall"
 
 	"github.com/rapidodb/rapidodb/pkg/config"
+	"github.com/rapidodb/rapidodb/pkg/lsm"
+	"github.com/rapidodb/rapidodb/pkg/server"
 )
 
 // Build-time variables (set by ldflags)
@@ -70,22 +72,75 @@ func main() {
 	// Print startup banner
 	printBanner()
 
-	// TODO: Initialize storage engine (Step 7)
-	// TODO: Start TCP server (Step 14)
+	// Initialize storage engine
+	fmt.Printf("Opening database at: %s\n", cfg.DataDir)
 
-	fmt.Printf("RapidoDB server starting on %s:%d\n", cfg.Server.Host, cfg.Server.Port)
-	fmt.Printf("Data directory: %s\n", cfg.DataDir)
+	engineOpts := lsm.DefaultOptions(cfg.DataDir)
+	engineOpts.MemTableSize = cfg.MemTable.MaxSize
+	engineOpts.MaxMemTables = cfg.MemTable.MaxMemTables
+	engineOpts.WALSyncOnWrite = cfg.WAL.SyncOnWrite
+	engineOpts.WALMaxFileSize = cfg.WAL.MaxSize
+	engineOpts.BlockSize = cfg.SSTable.BlockSize
+	engineOpts.BloomBitsPerKey = cfg.BloomFilter.BitsPerKey
+	engineOpts.MaxBackgroundCompactions = cfg.Compaction.MaxBackgroundCompactions
+	engineOpts.L0CompactionTrigger = cfg.Compaction.Leveled.L0CompactionTrigger
+
+	// Convert config strategy to lsm strategy
+	switch cfg.Compaction.Strategy {
+	case config.LeveledCompaction:
+		engineOpts.CompactionStrategy = lsm.CompactionLeveled
+	case config.TieredCompaction:
+		engineOpts.CompactionStrategy = lsm.CompactionTiered
+	case config.FIFOCompaction:
+		engineOpts.CompactionStrategy = lsm.CompactionFIFO
+	default:
+		engineOpts.CompactionStrategy = lsm.CompactionLeveled
+	}
+
+	engine, err := lsm.Open(engineOpts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create server
+	serverOpts := server.DefaultOptions()
+	serverOpts.Host = cfg.Server.Host
+	serverOpts.Port = cfg.Server.Port
+	serverOpts.ReadTimeout = cfg.Server.ReadTimeout
+	serverOpts.WriteTimeout = cfg.Server.WriteTimeout
+	serverOpts.MaxConnections = cfg.Server.MaxConnections
+	serverOpts.Version = fmt.Sprintf("RapidoDB/%s", Version)
+
+	srv := server.New(engine, serverOpts)
+
+	// Start server
+	if err := srv.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to start server: %v\n", err)
+		engine.Close()
+		os.Exit(1)
+	}
+
+	fmt.Printf("Server listening on %s\n", srv.Addr())
 	fmt.Printf("Compaction strategy: %s\n", cfg.Compaction.Strategy)
+	fmt.Println("\nReady to accept connections. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	fmt.Println("\nServer is running. Press Ctrl+C to stop.")
 	<-sigChan
 
 	fmt.Println("\nShutting down...")
-	// TODO: Graceful shutdown
+
+	// Graceful shutdown
+	if err := srv.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error closing server: %v\n", err)
+	}
+
+	if err := engine.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error closing engine: %v\n", err)
+	}
+
 	fmt.Println("Goodbye!")
 }
 
