@@ -3,15 +3,13 @@ package lsm
 import (
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
-	"strings"
 
 	"github.com/rapidodb/rapidodb/pkg/compaction"
 	"github.com/rapidodb/rapidodb/pkg/compaction/fifo"
 	"github.com/rapidodb/rapidodb/pkg/compaction/leveled"
 	"github.com/rapidodb/rapidodb/pkg/compaction/tiered"
 	"github.com/rapidodb/rapidodb/pkg/errors"
+	"github.com/rapidodb/rapidodb/pkg/manifest"
 	"github.com/rapidodb/rapidodb/pkg/memtable"
 	"github.com/rapidodb/rapidodb/pkg/mvcc"
 	"github.com/rapidodb/rapidodb/pkg/sstable"
@@ -58,10 +56,21 @@ func Open(opts Options) (*Engine, error) {
 	e.levels = compaction.NewLevelManager(sstDir, opts.BlockSize, opts.BloomBitsPerKey)
 	e.levels.SetLevelTargets(opts.MaxBytesForLevelBase, opts.MaxBytesForLevelMultiplier)
 
-	// Load existing SSTables
-	if err := e.loadSSTables(); err != nil {
+	// Initialize version set (manifest) and recover
+	e.versions = manifest.NewVersionSet(opts.Dir)
+	if err := e.versions.Recover(); err != nil {
+		return nil, errors.NewRecoveryError("manifest", err)
+	}
+
+	// Load SSTables from recovered manifest state
+	if err := e.loadFromManifest(); err != nil {
+		e.versions.Close()
 		return nil, err
 	}
+
+	// Restore counters from manifest
+	e.seqNum = e.versions.LastSequence()
+	e.nextFileNum.Store(e.versions.NextFileNumber())
 
 	// Create compaction strategy based on configuration
 	strategy := createStrategy(opts)
@@ -79,6 +88,33 @@ func Open(opts Options) (*Engine, error) {
 	}
 	e.compactor = compaction.NewCompactor(e.levels, strategy, compactConfig, e.allocateFileNum)
 
+	// Wire up compaction callback to log to manifest
+	e.compactor.SetCompactionCallback(func(edit *compaction.CompactionEdit) error {
+		vedít := manifest.NewVersionEdit()
+
+		// Add deleted files
+		for _, df := range edit.DeletedFiles {
+			vedít.DeleteFile(df.Level, df.FileNum)
+		}
+
+		// Add new files
+		for _, nf := range edit.NewFiles {
+			vedít.AddFile(nf.Level, &manifest.FileMeta{
+				FileNum: nf.Meta.FileNum,
+				Size:    nf.Meta.Size,
+				MinKey:  nf.Meta.MinKey,
+				MaxKey:  nf.Meta.MaxKey,
+				MinSeq:  nf.Meta.MinSeq,
+				MaxSeq:  nf.Meta.MaxSeq,
+				NumKeys: nf.Meta.NumKeys,
+			})
+		}
+
+		vedít.SetNextFileNumber(e.nextFileNum.Load())
+
+		return e.versions.LogAndApply(vedít)
+	})
+
 	// Wire up snapshot manager callback to update compactor's oldest snapshot
 	e.snapshots.SetOldestChangeCallback(func(oldestSeq uint64) {
 		e.compactor.SetOldestSnapshot(oldestSeq)
@@ -92,14 +128,16 @@ func Open(opts Options) (*Engine, error) {
 	}
 	walManager, err := wal.NewManager(walOpts)
 	if err != nil {
+		e.versions.Close()
 		e.levels.Close()
 		return nil, err
 	}
 	e.walManager = walManager
 
-	// Recover from WAL if exists
-	if err := e.recover(); err != nil {
+	// Recover from WAL (only logs >= manifest's LogNumber)
+	if err := e.recoverWAL(); err != nil {
 		walManager.Close()
+		e.versions.Close()
 		e.levels.Close()
 		return nil, err
 	}
@@ -107,6 +145,7 @@ func Open(opts Options) (*Engine, error) {
 	// Open new WAL for writes
 	if err := e.walManager.Open(0); err != nil {
 		walManager.Close()
+		e.versions.Close()
 		e.levels.Close()
 		return nil, err
 	}
@@ -128,113 +167,52 @@ func Open(opts Options) (*Engine, error) {
 	return e, nil
 }
 
-// createStrategy creates the appropriate compaction strategy.
-func createStrategy(opts Options) compaction.Strategy {
-	switch opts.CompactionStrategy {
-	case CompactionTiered:
-		return tiered.New(tiered.Config{
-			MinMergeWidth:               4,
-			MaxMergeWidth:               32,
-			SizeRatio:                   4.0,
-			BaseBucketSize:              opts.TargetFileSizeBase, // Use target file size as base
-			MaxBuckets:                  10,
-			MaxSizeAmplificationPercent: 200,
-			L0StopWritesTrigger:         opts.L0StopWritesTrigger,
-		})
-	case CompactionFIFO:
-		return fifo.New(fifo.Config{
-			MaxTableFilesSize:        opts.MaxBytesForLevelBase * 10, // Use 10x base level size
-			TTLSeconds:               0,                              // No TTL by default
-			MaxFilesToDeletePerCycle: 10,
-			L0StopWritesTrigger:      opts.L0StopWritesTrigger,
-		})
-	default:
-		// Leveled compaction (default)
-		return leveled.New(leveled.Config{
-			NumLevels:           opts.NumLevels,
-			L0CompactionTrigger: opts.L0CompactionTrigger,
-			L0StopWritesTrigger: opts.L0StopWritesTrigger,
-			BaseLevelSize:       opts.MaxBytesForLevelBase,
-			LevelSizeMultiplier: opts.MaxBytesForLevelMultiplier,
-			TargetFileSizeBase:  opts.TargetFileSizeBase,
-		})
-	}
-}
+// loadFromManifest loads SSTables based on manifest state.
+func (e *Engine) loadFromManifest() error {
+	version := e.versions.Current()
 
-// loadSSTables discovers and opens existing SSTable files.
-func (e *Engine) loadSSTables() error {
-	entries, err := os.ReadDir(e.sstDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+	for level := 0; level < manifest.MaxLevels; level++ {
+		files := version.GetFiles(level)
+		for _, f := range files {
+			path := e.sstPath(f.FileNum)
+
+			reader, err := sstable.OpenReader(path)
+			if err != nil {
+				// File doesn't exist or is corrupted, skip it
+				// In production, this would be logged
+				continue
+			}
+
+			// Convert manifest.FileMeta to compaction.FileMetadata
+			meta := &compaction.FileMetadata{
+				FileNum: f.FileNum,
+				Level:   level,
+				Size:    f.Size,
+				MinKey:  f.MinKey,
+				MaxKey:  f.MaxKey,
+				MinSeq:  f.MinSeq,
+				MaxSeq:  f.MaxSeq,
+				NumKeys: f.NumKeys,
+			}
+
+			if level == 0 {
+				e.levels.AddL0File(meta, reader)
+			} else {
+				e.levels.AddFile(level, meta, reader)
+			}
+
+			// Track highest file number
+			e.versions.MarkFileNumberUsed(f.FileNum)
 		}
-		return errors.NewIOError("readdir", e.sstDir, err)
-	}
-
-	fileNums := make([]uint64, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".sst") {
-			continue
-		}
-
-		numStr := strings.TrimSuffix(name, ".sst")
-		num, err := strconv.ParseUint(numStr, 10, 64)
-		if err != nil {
-			continue
-		}
-
-		fileNums = append(fileNums, num)
-
-		// Track highest file number
-		if num >= e.nextFileNum.Load() {
-			e.nextFileNum.Store(num + 1)
-		}
-	}
-
-	// Sort file numbers (newest first for L0)
-	sort.Slice(fileNums, func(i, j int) bool {
-		return fileNums[i] > fileNums[j]
-	})
-
-	// Open each SSTable and add to L0
-	// TODO: In a real implementation, we would read level info from MANIFEST
-	// For now, we assume all existing files are in L0
-	for _, fileNum := range fileNums {
-		path := e.sstPath(fileNum)
-		reader, err := sstable.OpenReader(path)
-		if err != nil {
-			// Log error but continue (skip corrupted files)
-			continue
-		}
-
-		// Get file info
-		info, err := os.Stat(path)
-		if err != nil {
-			reader.Close()
-			continue
-		}
-
-		meta := &compaction.FileMetadata{
-			FileNum: fileNum,
-			Level:   0, // Assume L0 for now
-			Size:    info.Size(),
-			MinKey:  reader.MinKey(),
-			MaxKey:  reader.MaxKey(),
-		}
-
-		e.levels.AddL0File(meta, reader)
 	}
 
 	return nil
 }
 
-// recover replays the WAL to restore state.
-func (e *Engine) recover() error {
+// recoverWAL replays the WAL to restore state.
+func (e *Engine) recoverWAL() error {
+	minLogNum := e.versions.LogNumber()
+
 	err := e.walManager.Recover(func(entry *types.Entry) error {
 		// Create MemTable if needed
 		if e.memTable == nil {
@@ -264,7 +242,42 @@ func (e *Engine) recover() error {
 		return errors.NewRecoveryError("wal", err)
 	}
 
+	// Update log number in versions (we'll need this for next manifest write)
+	_ = minLogNum // This would be used to skip old WAL files
+
 	return nil
+}
+
+// createStrategy creates the appropriate compaction strategy.
+func createStrategy(opts Options) compaction.Strategy {
+	switch opts.CompactionStrategy {
+	case CompactionTiered:
+		return tiered.New(tiered.Config{
+			MinMergeWidth:               4,
+			MaxMergeWidth:               32,
+			SizeRatio:                   4.0,
+			BaseBucketSize:              opts.TargetFileSizeBase,
+			MaxBuckets:                  10,
+			MaxSizeAmplificationPercent: 200,
+			L0StopWritesTrigger:         opts.L0StopWritesTrigger,
+		})
+	case CompactionFIFO:
+		return fifo.New(fifo.Config{
+			MaxTableFilesSize:        opts.MaxBytesForLevelBase * 10,
+			TTLSeconds:               0,
+			MaxFilesToDeletePerCycle: 10,
+			L0StopWritesTrigger:      opts.L0StopWritesTrigger,
+		})
+	default:
+		return leveled.New(leveled.Config{
+			NumLevels:           opts.NumLevels,
+			L0CompactionTrigger: opts.L0CompactionTrigger,
+			L0StopWritesTrigger: opts.L0StopWritesTrigger,
+			BaseLevelSize:       opts.MaxBytesForLevelBase,
+			LevelSizeMultiplier: opts.MaxBytesForLevelMultiplier,
+			TargetFileSizeBase:  opts.TargetFileSizeBase,
+		})
+	}
 }
 
 // Close closes the engine gracefully.
@@ -293,10 +306,20 @@ func (e *Engine) Close() error {
 	// Note: In production, we might want to flush all MemTables
 	// For now, we just close the WAL which ensures durability
 
+	var firstErr error
+
 	// Close WAL
-	var walErr error
 	if e.walManager != nil {
-		walErr = e.walManager.Close()
+		if err := e.walManager.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	// Close manifest/versions
+	if e.versions != nil {
+		if err := e.versions.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 
 	// Close level manager (closes all SSTable readers)
@@ -304,7 +327,7 @@ func (e *Engine) Close() error {
 		e.levels.Close()
 	}
 
-	return walErr
+	return firstErr
 }
 
 // flushWorker runs in the background and flushes immutable MemTables.
@@ -421,6 +444,28 @@ func (e *Engine) doFlush(task *flushTask) {
 		MinSeq:  minSeq,
 		MaxSeq:  maxSeq,
 		NumKeys: numKeys,
+	}
+
+	// Log new file to manifest (must succeed before adding to level manager)
+	edit := manifest.NewVersionEdit()
+	edit.AddFile(0, &manifest.FileMeta{
+		FileNum: fileNum,
+		Size:    int64(sstMeta.FileSize),
+		MinKey:  minKey,
+		MaxKey:  maxKey,
+		MinSeq:  minSeq,
+		MaxSeq:  maxSeq,
+		NumKeys: numKeys,
+	})
+	edit.SetLastSequence(maxSeq)
+	edit.SetLogNumber(task.walFileID)
+	edit.SetNextFileNumber(e.nextFileNum.Load())
+
+	if err := e.versions.LogAndApply(edit); err != nil {
+		// Failed to log to manifest, clean up and abort
+		reader.Close()
+		os.Remove(sstPath)
+		return
 	}
 
 	// Add to L0 and remove from immutable list

@@ -11,6 +11,19 @@ import (
 	"github.com/rapidodb/rapidodb/pkg/sstable"
 )
 
+// CompactionEdit represents the changes from a compaction operation.
+// This is used to notify the engine for manifest logging.
+type CompactionEdit struct {
+	DeletedFiles []struct {
+		Level   int
+		FileNum uint64
+	}
+	NewFiles []struct {
+		Level int
+		Meta  *FileMetadata
+	}
+}
+
 // Compactor executes compaction tasks using a pluggable strategy.
 type Compactor struct {
 	mu sync.Mutex
@@ -21,6 +34,9 @@ type Compactor struct {
 
 	// File number allocator
 	allocFileNum func() uint64
+
+	// Callback to log compaction edits (for manifest)
+	onCompactionComplete func(edit *CompactionEdit) error
 
 	// Statistics
 	stats Stats
@@ -42,6 +58,14 @@ func NewCompactor(levels *LevelManager, strategy Strategy, config Config, allocF
 	}
 	c.runner = NewRunner(c, config.MaxBackgroundCompactions)
 	return c
+}
+
+// SetCompactionCallback sets a callback invoked after each compaction.
+// The callback should log the edit to the manifest.
+func (c *Compactor) SetCompactionCallback(cb func(edit *CompactionEdit) error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onCompactionComplete = cb
 }
 
 // SetStrategy changes the compaction strategy.
@@ -99,23 +123,21 @@ func (c *Compactor) ShouldStallWrites() bool {
 
 // RunCompaction executes a compaction task.
 func (c *Compactor) RunCompaction(task *Task) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	// Check for FIFO deletion task (TargetLevel == -1)
 	if task.TargetLevel == -1 {
-		c.runDeletion(task)
-		return nil
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.runDeletion(task)
 	}
 
-	// Regular compaction: merge files
+	// Regular compaction: merge files (does its own locking)
 	return c.runMergeCompaction(task)
 }
 
 // runDeletion handles FIFO-style deletion (no merging).
-func (c *Compactor) runDeletion(task *Task) {
+func (c *Compactor) runDeletion(task *Task) error {
 	if len(task.Inputs) == 0 {
-		return
+		return nil
 	}
 
 	// Simply remove the files from the level manager and delete them
@@ -124,7 +146,7 @@ func (c *Compactor) runDeletion(task *Task) {
 
 		// Delete the physical file
 		path := filepath.Join(c.levels.SSTDir(), fmt.Sprintf("%06d.sst", meta.FileNum))
-		_ = os.Remove(path)
+		os.Remove(path) // Ignore errors
 
 		// Update statistics
 		c.stats.BytesRead += meta.Size
@@ -132,6 +154,7 @@ func (c *Compactor) runDeletion(task *Task) {
 	}
 
 	c.stats.CompactionsRun++
+	return nil
 }
 
 // runMergeCompaction handles regular merge compaction.
@@ -239,9 +262,7 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 		// Write entry
 		entry := mergeIter.Entry()
 		if err := writer.Add(entry); err != nil {
-			if abortErr := writer.Abort(); abortErr != nil {
-				return abortErr
-			}
+			writer.Abort()
 			return err
 		}
 
@@ -264,8 +285,8 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 	}
 
 	if mergeIter.Error() != nil {
-		if abortErr := writer.Abort(); abortErr != nil {
-			return abortErr
+		if writer != nil {
+			writer.Abort()
 		}
 		return mergeIter.Error()
 	}
@@ -293,6 +314,39 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 		outputReaders = append(outputReaders, reader)
 	}
 
+	// Call callback to log to manifest (before applying changes)
+	c.mu.Lock()
+	callback := c.onCompactionComplete
+	c.mu.Unlock()
+
+	if callback != nil {
+		edit := &CompactionEdit{}
+		for _, meta := range allInputs {
+			edit.DeletedFiles = append(edit.DeletedFiles, struct {
+				Level   int
+				FileNum uint64
+			}{Level: meta.Level, FileNum: meta.FileNum})
+		}
+		for _, meta := range outputFiles {
+			edit.NewFiles = append(edit.NewFiles, struct {
+				Level int
+				Meta  *FileMetadata
+			}{Level: task.TargetLevel, Meta: meta})
+		}
+
+		if err := callback(edit); err != nil {
+			// Failed to log to manifest, cleanup and abort
+			for _, r := range outputReaders {
+				r.Close()
+			}
+			for _, meta := range outputFiles {
+				path := filepath.Join(c.levels.SSTDir(), fmt.Sprintf("%06d.sst", meta.FileNum))
+				os.Remove(path)
+			}
+			return err
+		}
+	}
+
 	// Atomically swap files
 	// 1. Remove old files from level manager
 	for _, meta := range allInputs {
@@ -310,7 +364,8 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 		os.Remove(path) // Ignore errors
 	}
 
-	// Update statistics
+	// Update statistics (under lock)
+	c.mu.Lock()
 	c.stats.CompactionsRun++
 	for _, meta := range allInputs {
 		c.stats.BytesRead += meta.Size
@@ -320,6 +375,7 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 		c.stats.BytesWritten += meta.Size
 		c.stats.FilesWritten++
 	}
+	c.mu.Unlock()
 
 	return nil
 }
