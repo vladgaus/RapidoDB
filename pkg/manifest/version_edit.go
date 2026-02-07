@@ -52,25 +52,25 @@ import (
 
 // Record tags for VersionEdit fields
 const (
-	TagComparator      byte = 1
-	TagLogNumber       byte = 2
-	TagNextFileNumber  byte = 3
-	TagLastSequence    byte = 4
-	TagCompactPointer  byte = 5 // Not used, but reserved
-	TagDeletedFile     byte = 6
-	TagNewFile         byte = 7
-	TagPrevLogNumber   byte = 9 // Not used, but reserved
+	TagComparator     byte = 1
+	TagLogNumber      byte = 2
+	TagNextFileNumber byte = 3
+	TagLastSequence   byte = 4
+	TagCompactPointer byte = 5 // Not used, but reserved
+	TagDeletedFile    byte = 6
+	TagNewFile        byte = 7
+	TagPrevLogNumber  byte = 9 // Not used, but reserved
 )
 
 // FileMeta contains metadata about an SSTable file.
 type FileMeta struct {
-	FileNum  uint64
-	Size     int64
-	MinKey   []byte
-	MaxKey   []byte
-	MinSeq   uint64
-	MaxSeq   uint64
-	NumKeys  int64
+	FileNum uint64
+	Size    int64
+	MinKey  []byte
+	MaxKey  []byte
+	MinSeq  uint64
+	MaxSeq  uint64
+	NumKeys int64
 }
 
 // Clone creates a deep copy of FileMeta.
@@ -102,7 +102,7 @@ type DeletedFile struct {
 // Each edit is written atomically to the manifest file.
 type VersionEdit struct {
 	// Comparator name (only set in first edit)
-	Comparator string
+	Comparator    string
 	HasComparator bool
 
 	// WAL log number - files < this can be deleted
@@ -199,29 +199,45 @@ func (ve *VersionEdit) Encode() []byte {
 
 func (ve *VersionEdit) encodeString(buf *bytes.Buffer, tag byte, s string) {
 	buf.WriteByte(tag)
-	binary.Write(buf, binary.LittleEndian, uint32(len(s)))
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(s))); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
 	buf.WriteString(s)
 }
 
 func (ve *VersionEdit) encodeUint64(buf *bytes.Buffer, tag byte, v uint64) {
 	buf.WriteByte(tag)
-	binary.Write(buf, binary.LittleEndian, v)
+	if err := binary.Write(buf, binary.LittleEndian, v); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
 }
 
 func (ve *VersionEdit) encodeDeletedFile(buf *bytes.Buffer, df DeletedFile) {
 	buf.WriteByte(TagDeletedFile)
-	binary.Write(buf, binary.LittleEndian, uint32(df.Level))
-	binary.Write(buf, binary.LittleEndian, df.FileNum)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(df.Level)); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
+	if err := binary.Write(buf, binary.LittleEndian, df.FileNum); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
 }
 
 func (ve *VersionEdit) encodeNewFile(buf *bytes.Buffer, lf LevelFile) {
 	buf.WriteByte(TagNewFile)
-	binary.Write(buf, binary.LittleEndian, uint32(lf.Level))
-	binary.Write(buf, binary.LittleEndian, lf.Meta.FileNum)
-	binary.Write(buf, binary.LittleEndian, lf.Meta.Size)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(lf.Level)); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
+	if err := binary.Write(buf, binary.LittleEndian, lf.Meta.FileNum); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
+	if err := binary.Write(buf, binary.LittleEndian, lf.Meta.Size); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
 
 	// MinKey
-	binary.Write(buf, binary.LittleEndian, uint32(len(lf.Meta.MinKey)))
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(lf.Meta.MinKey))); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
 	buf.Write(lf.Meta.MinKey)
 
 	// MaxKey

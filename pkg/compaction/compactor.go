@@ -262,7 +262,9 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 		// Write entry
 		entry := mergeIter.Entry()
 		if err := writer.Add(entry); err != nil {
-			writer.Abort()
+			if abortErr := writer.Abort(); abortErr != nil {
+				return abortErr
+			}
 			return err
 		}
 
@@ -285,8 +287,8 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 	}
 
 	if mergeIter.Error() != nil {
-		if writer != nil {
-			writer.Abort()
+		if abortErr := writer.Abort(); abortErr != nil {
+			return abortErr
 		}
 		return mergeIter.Error()
 	}
