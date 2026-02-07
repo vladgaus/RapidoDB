@@ -39,6 +39,7 @@ linters:
         linters:
           - errcheck
           - unparam
+          - prealloc
 
       - path: tests/
         linters:
