@@ -1,10 +1,9 @@
 package lsm
 
 import (
-	"bytes"
-
 	"github.com/rapidodb/rapidodb/pkg/compaction"
 	"github.com/rapidodb/rapidodb/pkg/errors"
+	"github.com/rapidodb/rapidodb/pkg/iterator"
 	"github.com/rapidodb/rapidodb/pkg/mvcc"
 	"github.com/rapidodb/rapidodb/pkg/types"
 )
@@ -171,319 +170,235 @@ func (s *Snapshot) IsReleased() bool {
 
 // Iterator returns an iterator over all key-value pairs.
 func (e *Engine) Iterator() *Iterator {
+	return e.NewIterator(IteratorOptions{})
+}
+
+// IteratorOptions configures iteration behavior.
+type IteratorOptions struct {
+	// LowerBound is the inclusive lower bound for keys.
+	LowerBound []byte
+
+	// UpperBound is the exclusive upper bound for keys.
+	UpperBound []byte
+
+	// Prefix limits iteration to keys with this prefix.
+	Prefix []byte
+
+	// SnapshotSeq is the sequence number for MVCC visibility.
+	// If 0, uses the current sequence number.
+	SnapshotSeq uint64
+
+	// IncludeTombstones includes deleted entries if true.
+	IncludeTombstones bool
+}
+
+// NewIterator creates a new iterator with options.
+func (e *Engine) NewIterator(opts IteratorOptions) *Iterator {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	// Collect all iterators
-	memIters := make([]types.Iterator, 0, 1+len(e.immutableMemTables))
+	if e.closed.Load() {
+		return &Iterator{err: ErrClosed}
+	}
 
-	// Active MemTable iterator
-	memIters = append(memIters, e.memTable.NewIterator())
+	// Use current sequence number if not specified
+	snapshotSeq := opts.SnapshotSeq
+	if snapshotSeq == 0 {
+		snapshotSeq = e.seqNum
+	}
 
-	// Immutable MemTable iterators
-	for _, imm := range e.immutableMemTables {
-		memIters = append(memIters, imm.NewIterator())
+	// Collect all sources
+	sources := e.collectIteratorSources()
+
+	// Build merge iterator options
+	mergeOpts := iterator.Options{
+		SnapshotSeq:       snapshotSeq,
+		IncludeTombstones: opts.IncludeTombstones,
+	}
+
+	// Create merge iterator
+	mergeIter := iterator.NewMergeIterator(sources, mergeOpts)
+
+	// Apply bounds or prefix
+	var resultIter iterator.Iterator = mergeIter
+	if len(opts.Prefix) > 0 {
+		resultIter = iterator.NewPrefixIterator(mergeIter, opts.Prefix)
+	} else if len(opts.LowerBound) > 0 || len(opts.UpperBound) > 0 {
+		resultIter = iterator.NewBoundedIterator(mergeIter, opts.LowerBound, opts.UpperBound)
 	}
 
 	return &Iterator{
-		engine:   e,
-		seqNum:   e.seqNum,
-		memIters: memIters,
+		inner:  resultIter,
+		seqNum: snapshotSeq,
 	}
+}
+
+// Scan returns an iterator over keys in range [start, end).
+// If end is nil, iterates to the end.
+func (e *Engine) Scan(start, end []byte) *Iterator {
+	return e.NewIterator(IteratorOptions{
+		LowerBound: start,
+		UpperBound: end,
+	})
+}
+
+// ScanPrefix returns an iterator over keys with the given prefix.
+func (e *Engine) ScanPrefix(prefix []byte) *Iterator {
+	return e.NewIterator(IteratorOptions{
+		Prefix: prefix,
+	})
+}
+
+// collectIteratorSources collects all iterator sources.
+// Caller must hold e.mu.RLock().
+func (e *Engine) collectIteratorSources() []iterator.Source {
+	var sources []iterator.Source
+
+	// Active MemTable (level 0, highest priority)
+	if e.memTable != nil {
+		sources = append(sources, iterator.Source{
+			Iter:  iterator.Wrap(e.memTable.NewIterator()),
+			Level: 0,
+			ID:    e.memTable.ID(),
+		})
+	}
+
+	// Immutable MemTables (newest first)
+	for i, imm := range e.immutableMemTables {
+		sources = append(sources, iterator.Source{
+			Iter:  iterator.Wrap(imm.NewIterator()),
+			Level: 0,
+			ID:    imm.ID() + uint64(i+1)*1000, // Ensure unique IDs
+		})
+	}
+
+	// SSTable iterators from all levels
+	if e.levels != nil {
+		for level := 0; level < 7; level++ {
+			files := e.levels.LevelFiles(level)
+			for _, meta := range files {
+				reader := e.levels.GetReader(meta.FileNum)
+				if reader != nil {
+					sources = append(sources, iterator.Source{
+						Iter:  iterator.Wrap(reader.NewIterator()),
+						Level: level + 1, // Level 1+ for SSTables
+						ID:    meta.FileNum,
+					})
+				}
+			}
+		}
+	}
+
+	return sources
 }
 
 // Iterator iterates over key-value pairs in sorted order.
 type Iterator struct {
-	engine   *Engine
-	seqNum   uint64
-	memIters []types.Iterator
-
-	// Merge heap for merging multiple iterators
-	heap *mergeHeap
-
-	// Current position
-	key   []byte
-	value []byte
-	err   error
-	valid bool
-}
-
-// heapItem represents an item in the merge heap.
-type heapItem struct {
-	key      []byte
-	value    []byte
-	seqNum   uint64
-	isDelete bool
-	source   int // Index of the source iterator
-}
-
-// mergeHeap is a min-heap for merging sorted iterators.
-type mergeHeap struct {
-	items []*heapItem
-}
-
-func newMergeHeap() *mergeHeap {
-	return &mergeHeap{
-		items: make([]*heapItem, 0),
-	}
-}
-
-func (h *mergeHeap) Len() int {
-	return len(h.items)
-}
-
-func (h *mergeHeap) Less(i, j int) bool {
-	cmp := bytes.Compare(h.items[i].key, h.items[j].key)
-	if cmp != 0 {
-		return cmp < 0
-	}
-	// Same key: higher seqNum (newer) comes first
-	return h.items[i].seqNum > h.items[j].seqNum
-}
-
-func (h *mergeHeap) Swap(i, j int) {
-	h.items[i], h.items[j] = h.items[j], h.items[i]
-}
-
-func (h *mergeHeap) Push(x *heapItem) {
-	h.items = append(h.items, x)
-	h.up(len(h.items) - 1)
-}
-
-func (h *mergeHeap) Pop() *heapItem {
-	if len(h.items) == 0 {
-		return nil
-	}
-	item := h.items[0]
-	n := len(h.items) - 1
-	h.items[0] = h.items[n]
-	h.items = h.items[:n]
-	if n > 0 {
-		h.down(0)
-	}
-	return item
-}
-
-func (h *mergeHeap) Peek() *heapItem {
-	if len(h.items) == 0 {
-		return nil
-	}
-	return h.items[0]
-}
-
-func (h *mergeHeap) up(i int) {
-	for {
-		parent := (i - 1) / 2
-		if parent == i || !h.Less(i, parent) {
-			break
-		}
-		h.Swap(parent, i)
-		i = parent
-	}
-}
-
-func (h *mergeHeap) down(i int) {
-	n := len(h.items)
-	for {
-		left := 2*i + 1
-		if left >= n {
-			break
-		}
-		j := left
-		if right := left + 1; right < n && h.Less(right, left) {
-			j = right
-		}
-		if !h.Less(j, i) {
-			break
-		}
-		h.Swap(i, j)
-		i = j
-	}
+	inner  iterator.Iterator
+	seqNum uint64
+	err    error
 }
 
 // Valid returns true if the iterator is positioned at a valid entry.
 func (it *Iterator) Valid() bool {
-	return it.valid && it.err == nil
+	if it.err != nil {
+		return false
+	}
+	if it.inner == nil {
+		return false
+	}
+	return it.inner.Valid()
 }
 
 // Key returns the current key.
 func (it *Iterator) Key() []byte {
-	return it.key
+	if it.inner == nil {
+		return nil
+	}
+	return it.inner.Key()
 }
 
 // Value returns the current value.
 func (it *Iterator) Value() []byte {
-	return it.value
+	if it.inner == nil {
+		return nil
+	}
+	return it.inner.Value()
+}
+
+// Entry returns the full entry with metadata.
+func (it *Iterator) Entry() *types.Entry {
+	if it.inner == nil {
+		return nil
+	}
+	return it.inner.Entry()
 }
 
 // SeekToFirst positions at the first entry.
 func (it *Iterator) SeekToFirst() {
-	it.heap = newMergeHeap()
-
-	// Position all MemTable iterators at first
-	for i, iter := range it.memIters {
-		iter.SeekToFirst()
-		if iter.Valid() {
-			it.pushFromMemIter(iter, i)
-		}
+	if it.inner == nil {
+		return
 	}
-
-	// TODO: Add SSTable iterators (Step 8)
-
-	it.advance()
+	it.inner.SeekToFirst()
 }
 
 // SeekToLast positions at the last entry.
 func (it *Iterator) SeekToLast() {
-	// For simplicity, scan through all entries
-	// A more efficient implementation would use backward iteration
-	it.SeekToFirst()
-
-	var lastKey, lastValue []byte
-	for it.Valid() {
-		lastKey = append([]byte{}, it.key...)
-		lastValue = append([]byte{}, it.value...)
-		it.Next()
+	if it.inner == nil {
+		return
 	}
-
-	it.key = lastKey
-	it.value = lastValue
-	it.valid = lastKey != nil
-	it.err = nil
+	it.inner.SeekToLast()
 }
 
 // Seek positions at first entry >= target.
 func (it *Iterator) Seek(target []byte) {
-	it.heap = newMergeHeap()
-
-	// Seek all MemTable iterators
-	for i, iter := range it.memIters {
-		iter.Seek(target)
-		if iter.Valid() {
-			it.pushFromMemIter(iter, i)
-		}
+	if it.inner == nil {
+		return
 	}
+	it.inner.Seek(target)
+}
 
-	// TODO: Add SSTable iterators (Step 8)
-
-	it.advance()
+// SeekForPrev positions at last entry <= target.
+func (it *Iterator) SeekForPrev(target []byte) {
+	if it.inner == nil {
+		return
+	}
+	it.inner.SeekForPrev(target)
 }
 
 // Next advances to the next entry.
 func (it *Iterator) Next() {
-	if !it.valid || it.heap == nil {
+	if it.inner == nil {
 		return
 	}
-
-	// Skip all entries with the same key (they're older versions)
-	currentKey := it.key
-	for it.heap.Len() > 0 {
-		top := it.heap.Peek()
-		if !bytes.Equal(top.key, currentKey) {
-			break
-		}
-		it.heap.Pop()
-		it.advanceSource(top.source)
-	}
-
-	it.advance()
+	it.inner.Next()
 }
 
-// advance moves to the next visible entry.
-func (it *Iterator) advance() {
-	for it.heap.Len() > 0 {
-		item := it.heap.Pop()
-
-		// Check if entry is visible (seqNum <= snapshot seqNum)
-		if item.seqNum > it.seqNum {
-			it.advanceSource(item.source)
-			continue
-		}
-
-		// Skip deleted entries
-		if item.isDelete {
-			// Need to skip all older versions of this key too
-			it.skipOldVersions(item.key)
-			it.advanceSource(item.source)
-			continue
-		}
-
-		// Found a valid entry
-		it.key = item.key
-		it.value = item.value
-		it.valid = true
-
-		// Advance source for next time
-		it.advanceSource(item.source)
-
-		// Skip any remaining versions of this key in the heap
-		it.skipOldVersions(item.key)
-
+// Prev moves to the previous entry.
+func (it *Iterator) Prev() {
+	if it.inner == nil {
 		return
 	}
-
-	// No more entries
-	it.key = nil
-	it.value = nil
-	it.valid = false
-}
-
-// skipOldVersions removes all older versions of key from the heap.
-func (it *Iterator) skipOldVersions(key []byte) {
-	for it.heap.Len() > 0 {
-		top := it.heap.Peek()
-		if !bytes.Equal(top.key, key) {
-			break
-		}
-		item := it.heap.Pop()
-		it.advanceSource(item.source)
-	}
-}
-
-// advanceSource advances the source iterator and pushes new item if valid.
-func (it *Iterator) advanceSource(source int) {
-	if source < len(it.memIters) {
-		iter := it.memIters[source]
-		iter.Next()
-		if iter.Valid() {
-			it.pushFromMemIter(iter, source)
-		}
-	}
-	// TODO: Handle SSTable sources (Step 8)
-}
-
-// pushFromMemIter pushes the current entry from a MemTable iterator.
-func (it *Iterator) pushFromMemIter(iter types.Iterator, source int) {
-	key := iter.Key()
-	if key == nil {
-		return
-	}
-
-	// We need to get the entry to check delete status and seqnum
-	// For now, we approximate - the MemTable iterator returns all versions
-	item := &heapItem{
-		key:      append([]byte{}, key...),
-		value:    append([]byte{}, iter.Value()...),
-		seqNum:   it.seqNum, // Use snapshot seqnum as approximation
-		isDelete: iter.Value() == nil,
-		source:   source,
-	}
-	it.heap.Push(item)
+	it.inner.Prev()
 }
 
 // Error returns any error encountered.
 func (it *Iterator) Error() error {
-	return it.err
+	if it.err != nil {
+		return it.err
+	}
+	if it.inner == nil {
+		return nil
+	}
+	return it.inner.Error()
 }
 
 // Close releases iterator resources.
 func (it *Iterator) Close() error {
-	for _, iter := range it.memIters {
-		_ = iter.Close()
+	if it.inner == nil {
+		return nil
 	}
-	it.memIters = nil
-	it.heap = nil
-	return nil
+	return it.inner.Close()
 }
 
 // Stats returns engine statistics.
