@@ -151,7 +151,7 @@ func (s *Strategy) pickL0Compaction(levels *compaction.LevelManager) *compaction
 
 // pickLevelCompaction picks a level compaction based on size scores.
 func (s *Strategy) pickLevelCompaction(levels *compaction.LevelManager) *compaction.Task {
-	var bestLevel int = -1
+	bestLevel := -1
 	var bestScore float64
 
 	// Check each level (L1 to L5, compacting to next level)

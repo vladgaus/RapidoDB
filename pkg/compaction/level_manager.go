@@ -122,7 +122,7 @@ func (lm *LevelManager) RemoveFile(meta *FileMetadata) {
 
 	// Close and remove reader
 	if reader, ok := lm.readers[meta.FileNum]; ok {
-		reader.Close()
+		_ = reader.Close()
 		delete(lm.readers, meta.FileNum)
 	}
 }

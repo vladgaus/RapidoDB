@@ -52,6 +52,7 @@ import (
 	"sync/atomic"
 
 	"github.com/rapidodb/rapidodb/pkg/compaction"
+	"github.com/rapidodb/rapidodb/pkg/manifest"
 	"github.com/rapidodb/rapidodb/pkg/memtable"
 	"github.com/rapidodb/rapidodb/pkg/mvcc"
 	"github.com/rapidodb/rapidodb/pkg/wal"
@@ -77,6 +78,9 @@ type Engine struct {
 
 	// Write-Ahead Log for durability
 	walManager *wal.Manager
+
+	// Version set for manifest (crash recovery)
+	versions *manifest.VersionSet
 
 	// Level manager for SSTables (from compaction package)
 	levels *compaction.LevelManager

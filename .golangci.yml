@@ -1,55 +1,59 @@
+version: "2"
+
 run:
   timeout: 5m
-  issues-exit-code: 1
   tests: true
 
 linters:
   enable:
-     - errcheck       # Check for unchecked errors
-     - gosimple       # Simplify code
-     - govet          # Report suspicious constructs
-     - ineffassign    # Detect ineffective assignments
-     - staticcheck    # Static analysis checks
-     - unused         # Find unused code
-     - gofmt          # Check formatting
-     - goimports      # Check imports
-     - misspell       # Find misspellings
-     - unconvert      # Remove unnecessary conversions
-     - unparam        # Find unused function parameters
-     - nakedret       # Find naked returns in long functions
-     - prealloc       # Find slice preallocation opportunities
-     - copyloopvar    # Check for pointers to loop variables
-     - bodyclose      # Check HTTP response body is closed
-     - noctx          # Check for HTTP requests without context
+    - errcheck       # Check for unchecked errors
+    - govet          # Report suspicious constructs
+    - ineffassign    # Detect ineffective assignments
+    - staticcheck    # Static analysis checks (includes gosimple)
+    - unused         # Find unused code
+    - misspell       # Find misspellings
+    - unconvert      # Remove unnecessary conversions
+    - unparam        # Find unused function parameters
+    - nakedret       # Find naked returns in long functions
+    - prealloc       # Find slice preallocation opportunities
+    - copyloopvar    # Check for pointers to loop variables
+    - bodyclose      # Check HTTP response body is closed
+    - noctx          # Check for HTTP requests without context
 
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
 
-  goimports:
-    local-prefixes: github.com/rapidodb/rapidodb
+    nakedret:
+      max-func-lines: 30
 
-  nakedret:
-    max-func-lines: 30
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: true
 
-  prealloc:
-    simple: true
-    range-loops: true
-    for-loops: true
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - unparam
+
+      - path: tests/
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/rapidodb/rapidodb
 
 issues:
-  exclude-rules:
-    # Exclude some linters from running on tests
-    - path: _test\.go
-      linters:
-        - errcheck
-        - unparam
-
-    # Exclude some linters from running on test utilities
-    - path: tests/
-      linters:
-        - errcheck
-
   max-issues-per-linter: 50
   max-same-issues: 10

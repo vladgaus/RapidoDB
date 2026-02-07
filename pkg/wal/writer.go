@@ -79,7 +79,7 @@ func OpenWriter(path string, opts WriterOptions) (*Writer, error) {
 	// Get current file size to determine block offset
 	info, err := file.Stat()
 	if err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, errors.NewIOError("stat", path, err)
 	}
 
@@ -216,7 +216,7 @@ func (w *Writer) Close() error {
 
 	// Sync before close
 	if err := w.file.Sync(); err != nil {
-		w.file.Close()
+		_ = w.file.Close()
 		return errors.NewIOError("sync", w.filePath, err)
 	}
 
