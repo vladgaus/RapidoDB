@@ -44,13 +44,13 @@ func OpenReader(path string) (*Reader, error) {
 	// Get file size
 	info, err := file.Stat()
 	if err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, err
 	}
 	size := info.Size()
 
 	if size < FooterSize {
-		file.Close()
+		_ = file.Close()
 		return nil, ErrInvalidFooter
 	}
 
@@ -58,13 +58,13 @@ func OpenReader(path string) (*Reader, error) {
 	footerBuf := make([]byte, FooterSize)
 	_, err = file.ReadAt(footerBuf, size-FooterSize)
 	if err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, err
 	}
 
 	footer, err := DecodeFooter(footerBuf)
 	if err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, err
 	}
 
@@ -77,7 +77,7 @@ func OpenReader(path string) (*Reader, error) {
 
 	// Load index
 	if err := r.loadIndex(); err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, err
 	}
 

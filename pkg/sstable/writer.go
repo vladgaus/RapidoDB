@@ -241,31 +241,31 @@ func (w *Writer) Finish() (*Metadata, error) {
 	w.finished = true
 
 	if w.err != nil {
-		w.file.Close()
-		os.Remove(w.path)
+		_ = w.file.Close()
+		_ = os.Remove(w.path)
 		return nil, w.err
 	}
 
 	// Flush any remaining data block
 	if err := w.flushDataBlock(); err != nil {
-		w.file.Close()
-		os.Remove(w.path)
+		_ = w.file.Close()
+		_ = os.Remove(w.path)
 		return nil, err
 	}
 
 	// Write filter block
 	filterHandle, err := w.writeFilterBlock()
 	if err != nil {
-		w.file.Close()
-		os.Remove(w.path)
+		_ = w.file.Close()
+		_ = os.Remove(w.path)
 		return nil, err
 	}
 
 	// Write index block
 	indexHandle, err := w.writeIndexBlock()
 	if err != nil {
-		w.file.Close()
-		os.Remove(w.path)
+		_ = w.file.Close()
+		_ = os.Remove(w.path)
 		return nil, err
 	}
 
@@ -276,24 +276,24 @@ func (w *Writer) Finish() (*Metadata, error) {
 		Version:      FormatVersion,
 	}
 	if _, err := w.writer.Write(footer.Encode()); err != nil {
-		w.file.Close()
-		os.Remove(w.path)
+		_ = w.file.Close()
+		_ = os.Remove(w.path)
 		return nil, err
 	}
 
 	// Flush and sync
 	if err := w.writer.Flush(); err != nil {
-		w.file.Close()
-		os.Remove(w.path)
+		_ = w.file.Close()
+		_ = os.Remove(w.path)
 		return nil, err
 	}
 	if err := w.file.Sync(); err != nil {
-		w.file.Close()
-		os.Remove(w.path)
+		_ = w.file.Close()
+		_ = os.Remove(w.path)
 		return nil, err
 	}
 	if err := w.file.Close(); err != nil {
-		os.Remove(w.path)
+		_ = os.Remove(w.path)
 		return nil, err
 	}
 
@@ -315,7 +315,7 @@ func (w *Writer) Abort() error {
 		return nil
 	}
 	w.finished = true
-	w.file.Close()
+	_ = w.file.Close()
 	return os.Remove(w.path)
 }
 

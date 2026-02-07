@@ -479,7 +479,7 @@ func (it *Iterator) Error() error {
 // Close releases iterator resources.
 func (it *Iterator) Close() error {
 	for _, iter := range it.memIters {
-		iter.Close()
+		_ = iter.Close()
 	}
 	it.memIters = nil
 	it.heap = nil
