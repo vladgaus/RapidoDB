@@ -64,7 +64,7 @@ func Open(opts Options) (*Engine, error) {
 
 	// Load SSTables from recovered manifest state
 	if err := e.loadFromManifest(); err != nil {
-		e.versions.Close()
+		_ = e.versions.Close()
 		return nil, err
 	}
 
@@ -128,25 +128,25 @@ func Open(opts Options) (*Engine, error) {
 	}
 	walManager, err := wal.NewManager(walOpts)
 	if err != nil {
-		e.versions.Close()
-		e.levels.Close()
+		_ = e.versions.Close()
+		_ = e.levels.Close()
 		return nil, err
 	}
 	e.walManager = walManager
 
 	// Recover from WAL (only logs >= manifest's LogNumber)
 	if err := e.recoverWAL(); err != nil {
-		walManager.Close()
-		e.versions.Close()
-		e.levels.Close()
+		_ = walManager.Close()
+		_ = e.versions.Close()
+		_ = e.levels.Close()
 		return nil, err
 	}
 
 	// Open new WAL for writes
 	if err := e.walManager.Open(0); err != nil {
-		walManager.Close()
-		e.versions.Close()
-		e.levels.Close()
+		_ = walManager.Close()
+		_ = e.versions.Close()
+		_ = e.levels.Close()
 		return nil, err
 	}
 
@@ -168,6 +168,8 @@ func Open(opts Options) (*Engine, error) {
 }
 
 // loadFromManifest loads SSTables based on manifest state.
+//
+//nolint:unparam // error return kept for future error propagation on SSTable load failures
 func (e *Engine) loadFromManifest() error {
 	version := e.versions.Current()
 
@@ -324,7 +326,9 @@ func (e *Engine) Close() error {
 
 	// Close level manager (closes all SSTable readers)
 	if e.levels != nil {
-		e.levels.Close()
+		if err := e.levels.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 
 	return firstErr
@@ -430,7 +434,7 @@ func (e *Engine) doFlush(task *flushTask) {
 	// Open the new SSTable for reading
 	reader, err := sstable.OpenReader(sstPath)
 	if err != nil {
-		os.Remove(sstPath)
+		_ = os.Remove(sstPath)
 		return
 	}
 
@@ -463,8 +467,8 @@ func (e *Engine) doFlush(task *flushTask) {
 
 	if err := e.versions.LogAndApply(edit); err != nil {
 		// Failed to log to manifest, clean up and abort
-		reader.Close()
-		os.Remove(sstPath)
+		_ = reader.Close()
+		_ = os.Remove(sstPath)
 		return
 	}
 

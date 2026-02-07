@@ -123,7 +123,7 @@ func SyncDir(dir string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return f.Sync()
 }
 
@@ -141,8 +141,8 @@ func AtomicWrite(path string, data []byte, perm os.FileMode) error {
 	success := false
 	defer func() {
 		if !success {
-			tempFile.Close()
-			os.Remove(tempPath)
+			_ = tempFile.Close()
+			_ = os.Remove(tempPath)
 		}
 	}()
 

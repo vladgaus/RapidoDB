@@ -241,15 +241,23 @@ func (ve *VersionEdit) encodeNewFile(buf *bytes.Buffer, lf LevelFile) {
 	buf.Write(lf.Meta.MinKey)
 
 	// MaxKey
-	binary.Write(buf, binary.LittleEndian, uint32(len(lf.Meta.MaxKey)))
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(lf.Meta.MaxKey))); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
 	buf.Write(lf.Meta.MaxKey)
 
 	// Sequence numbers
-	binary.Write(buf, binary.LittleEndian, lf.Meta.MinSeq)
-	binary.Write(buf, binary.LittleEndian, lf.Meta.MaxSeq)
+	if err := binary.Write(buf, binary.LittleEndian, lf.Meta.MinSeq); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
+	if err := binary.Write(buf, binary.LittleEndian, lf.Meta.MaxSeq); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
 
 	// NumKeys
-	binary.Write(buf, binary.LittleEndian, lf.Meta.NumKeys)
+	if err := binary.Write(buf, binary.LittleEndian, lf.Meta.NumKeys); err != nil {
+		panic("binary.Write to bytes.Buffer failed: " + err.Error())
+	}
 }
 
 // Decode deserializes a VersionEdit from bytes.

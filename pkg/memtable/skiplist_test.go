@@ -233,13 +233,13 @@ func TestSkipListConcurrentReads(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
 				key := []byte(fmt.Sprintf("key%04d", rand.Intn(1000)))
 				sl.Get(key, 1001)
 			}
-		}(i)
+		}()
 	}
 
 	wg.Wait()

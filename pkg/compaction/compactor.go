@@ -135,6 +135,8 @@ func (c *Compactor) RunCompaction(task *Task) error {
 }
 
 // runDeletion handles FIFO-style deletion (no merging).
+//
+//nolint:unparam // error return kept for consistency with runMergeCompaction
 func (c *Compactor) runDeletion(task *Task) error {
 	if len(task.Inputs) == 0 {
 		return nil
@@ -146,7 +148,7 @@ func (c *Compactor) runDeletion(task *Task) error {
 
 		// Delete the physical file
 		path := filepath.Join(c.levels.SSTDir(), fmt.Sprintf("%06d.sst", meta.FileNum))
-		os.Remove(path) // Ignore errors
+		_ = os.Remove(path) // best-effort cleanup
 
 		// Update statistics
 		c.stats.BytesRead += meta.Size
@@ -190,7 +192,7 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 	// Create merge iterator
 	oldestSnapshot := c.oldestSnapshot.Load()
 	mergeIter := NewCompactionIterator(iters, levels, fileNums, oldestSnapshot)
-	defer mergeIter.Close()
+	defer func() { _ = mergeIter.Close() }()
 
 	// Output files - estimate based on input count
 	outputFiles := make([]*FileMetadata, 0, len(allInputs))
@@ -201,7 +203,7 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 		if len(outputFiles) > 0 && len(outputReaders) == 0 {
 			// Error occurred, cleanup partial output
 			for _, meta := range outputFiles {
-				os.Remove(filepath.Join(c.levels.SSTDir(), fmt.Sprintf("%06d.sst", meta.FileNum)))
+				_ = os.Remove(filepath.Join(c.levels.SSTDir(), fmt.Sprintf("%06d.sst", meta.FileNum)))
 			}
 		}
 	}()
@@ -309,7 +311,7 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 		if err != nil {
 			// Cleanup already created readers
 			for _, r := range outputReaders {
-				r.Close()
+				_ = r.Close()
 			}
 			return err
 		}
@@ -339,11 +341,11 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 		if err := callback(edit); err != nil {
 			// Failed to log to manifest, cleanup and abort
 			for _, r := range outputReaders {
-				r.Close()
+				_ = r.Close()
 			}
 			for _, meta := range outputFiles {
 				path := filepath.Join(c.levels.SSTDir(), fmt.Sprintf("%06d.sst", meta.FileNum))
-				os.Remove(path)
+				_ = os.Remove(path)
 			}
 			return err
 		}
@@ -363,7 +365,7 @@ func (c *Compactor) runMergeCompaction(task *Task) error {
 	// 3. Delete old SSTable files
 	for _, meta := range allInputs {
 		path := filepath.Join(c.levels.SSTDir(), fmt.Sprintf("%06d.sst", meta.FileNum))
-		os.Remove(path) // Ignore errors
+		_ = os.Remove(path) // best-effort cleanup
 	}
 
 	// Update statistics (under lock)

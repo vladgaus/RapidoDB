@@ -172,7 +172,7 @@ func (vs *VersionSet) Recover() error {
 	if err != nil {
 		return fmt.Errorf("open manifest: %w", err)
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck // read-only close during recovery
 
 	// Build version by replaying all edits
 	builder := NewVersionBuilder(vs.current)
@@ -225,7 +225,7 @@ func (vs *VersionSet) LogAndApply(edit *VersionEdit) error {
 	newVersion := builder.Build()
 
 	// Ensure manifest writer exists
-	if err := vs.ensureManifestWriter(edit); err != nil {
+	if err := vs.ensureManifestWriter(); err != nil {
 		return err
 	}
 
@@ -259,7 +259,7 @@ func (vs *VersionSet) LogAndApply(edit *VersionEdit) error {
 
 // ensureManifestWriter ensures the manifest writer is open.
 // Creates a new manifest if needed.
-func (vs *VersionSet) ensureManifestWriter(edit *VersionEdit) error {
+func (vs *VersionSet) ensureManifestWriter() error {
 	if vs.manifestWriter != nil {
 		return nil
 	}
@@ -280,14 +280,14 @@ func (vs *VersionSet) ensureManifestWriter(edit *VersionEdit) error {
 	// Write snapshot of current state
 	snapshot := vs.buildSnapshot()
 	if err := writer.WriteEdit(snapshot); err != nil {
-		writer.Close()
+		_ = writer.Close() // closing after write error
 		vs.manifestWriter = nil
 		return fmt.Errorf("write snapshot: %w", err)
 	}
 
 	// Update CURRENT file
 	if err := SetCurrent(vs.dbDir, vs.manifestNum); err != nil {
-		writer.Close()
+		_ = writer.Close() // closing after SetCurrent error
 		vs.manifestWriter = nil
 		return fmt.Errorf("set current: %w", err)
 	}

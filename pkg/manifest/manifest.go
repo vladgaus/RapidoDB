@@ -290,7 +290,7 @@ func SetCurrent(dir string, manifestNum uint64) error {
 
 	// Atomic rename
 	if err := os.Rename(tempPath, currentPath); err != nil {
-		os.Remove(tempPath)
+		_ = os.Remove(tempPath) // best-effort cleanup
 		return fmt.Errorf("rename current: %w", err)
 	}
 

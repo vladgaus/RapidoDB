@@ -468,9 +468,9 @@ func TestManifestLargeEdit(t *testing.T) {
 
 func TestParseManifestNumber(t *testing.T) {
 	tests := []struct {
-		name   string
-		num    uint64
-		valid  bool
+		name  string
+		num   uint64
+		valid bool
 	}{
 		{"MANIFEST-000001", 1, true},
 		{"MANIFEST-000123", 123, true},

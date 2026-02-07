@@ -231,7 +231,7 @@ func (mi *MergeIterator) Error() error {
 func (mi *MergeIterator) Close() error {
 	for i := range mi.iters {
 		if mi.iters[i].iter != nil {
-			mi.iters[i].iter.Close()
+			_ = mi.iters[i].iter.Close()
 		}
 	}
 	return nil
@@ -495,7 +495,7 @@ func (ci *CompactionIterator) Error() error {
 func (ci *CompactionIterator) Close() error {
 	for i := range ci.iters {
 		if ci.iters[i].iter != nil {
-			ci.iters[i].iter.Close()
+			_ = ci.iters[i].iter.Close()
 		}
 	}
 	return nil

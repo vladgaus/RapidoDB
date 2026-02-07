@@ -134,8 +134,8 @@ func TestManifestRecoveryAfterCompaction(t *testing.T) {
 	dir := tempDir(t)
 
 	opts := DefaultOptions(dir)
-	opts.MemTableSize = 2048          // Small memtable
-	opts.L0CompactionTrigger = 2      // Trigger compaction early
+	opts.MemTableSize = 2048           // Small memtable
+	opts.L0CompactionTrigger = 2       // Trigger compaction early
 	opts.TargetFileSizeBase = 4 * 1024 // Small files
 
 	e, err := Open(opts)
