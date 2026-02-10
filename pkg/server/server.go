@@ -156,7 +156,8 @@ func (s *Server) Start() error {
 
 	addr := fmt.Sprintf("%s:%d", s.opts.Host, s.opts.Port)
 
-	listener, err := net.Listen("tcp", addr)
+	lc := net.ListenConfig{}
+	listener, err := lc.Listen(s.ctx, "tcp", addr)
 	if err != nil {
 		s.started.Store(false)
 		return fmt.Errorf("failed to listen on %s: %w", addr, err)
@@ -187,12 +188,9 @@ func (s *Server) acceptLoop() {
 			if s.closed.Load() {
 				return
 			}
-			// Temporary error, continue
-			if ne, ok := err.(net.Error); ok && ne.Temporary() {
-				time.Sleep(10 * time.Millisecond)
-				continue
-			}
-			return
+			// Backoff and retry on accept error
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
 
 		// Check connection limit
