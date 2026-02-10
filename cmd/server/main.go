@@ -117,7 +117,7 @@ func main() {
 	// Start server
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to start server: %v\n", err)
-		engine.Close()
+		_ = engine.Close()
 		os.Exit(1)
 	}
 

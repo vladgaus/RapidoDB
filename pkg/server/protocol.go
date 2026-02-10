@@ -24,17 +24,17 @@ type Command struct {
 
 // Response codes
 const (
-	RespStored       = "STORED\r\n"
-	RespNotStored    = "NOT_STORED\r\n"
-	RespExists       = "EXISTS\r\n"
-	RespNotFound     = "NOT_FOUND\r\n"
-	RespDeleted      = "DELETED\r\n"
-	RespTouched      = "TOUCHED\r\n"
-	RespOK           = "OK\r\n"
-	RespEnd          = "END\r\n"
-	RespError        = "ERROR\r\n"
-	RespClientError  = "CLIENT_ERROR %s\r\n"
-	RespServerError  = "SERVER_ERROR %s\r\n"
+	RespStored      = "STORED\r\n"
+	RespNotStored   = "NOT_STORED\r\n"
+	RespExists      = "EXISTS\r\n"
+	RespNotFound    = "NOT_FOUND\r\n"
+	RespDeleted     = "DELETED\r\n"
+	RespTouched     = "TOUCHED\r\n"
+	RespOK          = "OK\r\n"
+	RespEnd         = "END\r\n"
+	RespError       = "ERROR\r\n"
+	RespClientError = "CLIENT_ERROR %s\r\n"
+	RespServerError = "SERVER_ERROR %s\r\n"
 )
 
 // Protocol errors

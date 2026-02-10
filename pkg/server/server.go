@@ -113,11 +113,11 @@ type Stats struct {
 	ActiveConns      atomic.Int64
 
 	// Command stats
-	CmdGet     atomic.Uint64
-	CmdSet     atomic.Uint64
-	CmdDelete  atomic.Uint64
-	CmdFlush   atomic.Uint64
-	CmdOther   atomic.Uint64
+	CmdGet    atomic.Uint64
+	CmdSet    atomic.Uint64
+	CmdDelete atomic.Uint64
+	CmdFlush  atomic.Uint64
+	CmdOther  atomic.Uint64
 
 	// Hit/miss stats
 	GetHits   atomic.Uint64
@@ -197,7 +197,7 @@ func (s *Server) acceptLoop() {
 
 		// Check connection limit
 		if s.opts.MaxConnections > 0 && s.connCount.Load() >= int64(s.opts.MaxConnections) {
-			conn.Close()
+			_ = conn.Close()
 			continue
 		}
 
@@ -233,7 +233,7 @@ func (s *Server) handleConnection(netConn net.Conn) {
 		s.connMu.Lock()
 		delete(s.connections, conn)
 		s.connMu.Unlock()
-		conn.Close()
+		_ = conn.Close()
 	}()
 
 	// Handle requests
@@ -258,7 +258,7 @@ func (s *Server) Close() error {
 		// Close all connections
 		s.connMu.Lock()
 		for conn := range s.connections {
-			conn.Close()
+			_ = conn.Close()
 		}
 		s.connMu.Unlock()
 
@@ -269,9 +269,10 @@ func (s *Server) Close() error {
 	return err
 }
 
-// Stats returns a copy of server statistics.
-func (s *Server) Stats() Stats {
-	return s.stats
+// Stats returns server statistics. Returns a pointer to avoid
+// copying atomic values (copylocks).
+func (s *Server) Stats() *Stats {
+	return &s.stats
 }
 
 // Engine returns the storage engine.

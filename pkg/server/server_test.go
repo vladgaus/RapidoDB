@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -48,7 +49,8 @@ func testServer(t *testing.T) (*Server, string) {
 func testClient(t *testing.T, addr string) net.Conn {
 	t.Helper()
 
-	conn, err := net.Dial("tcp", addr)
+	var d net.Dialer
+	conn, err := d.DialContext(context.Background(), "tcp", addr)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -546,7 +548,8 @@ func BenchmarkSetGet(b *testing.B) {
 	srv.Start()
 	defer srv.Close()
 
-	conn, _ := net.Dial("tcp", srv.Addr())
+	var d net.Dialer
+	conn, _ := d.DialContext(context.Background(), "tcp", srv.Addr())
 	defer conn.Close()
 
 	b.ResetTimer()

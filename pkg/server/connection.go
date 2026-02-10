@@ -32,7 +32,7 @@ func NewConnection(conn net.Conn, server *Server) *Connection {
 
 // Serve handles requests until the connection is closed.
 func (c *Connection) Serve(ctx context.Context) {
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	for {
 		select {
@@ -43,7 +43,7 @@ func (c *Connection) Serve(ctx context.Context) {
 
 		// Set read deadline
 		if c.server.opts.ReadTimeout > 0 {
-			c.conn.SetReadDeadline(time.Now().Add(c.server.opts.ReadTimeout))
+			_ = c.conn.SetReadDeadline(time.Now().Add(c.server.opts.ReadTimeout))
 		}
 
 		// Read and parse command
@@ -58,14 +58,15 @@ func (c *Connection) Serve(ctx context.Context) {
 			}
 			// Send error and continue
 			c.resp.Reset()
-			if err == ErrBadCommand {
+			switch err {
+			case ErrBadCommand:
 				c.resp.WriteError()
-			} else if err == ErrBadKey || err == ErrValueTooLarge {
+			case ErrBadKey, ErrValueTooLarge:
 				c.resp.WriteClientError(err.Error())
-			} else {
+			default:
 				c.resp.WriteServerError(err.Error())
 			}
-			c.write(c.resp.Bytes())
+			_ = c.write(c.resp.Bytes())
 			continue
 		}
 
@@ -102,7 +103,7 @@ func (c *Connection) handleCommand(cmd *Command) {
 	case "version":
 		c.handleVersion(cmd)
 	case "quit":
-		c.Close()
+		_ = c.Close()
 		return
 	case "verbosity":
 		// Accept but ignore
@@ -115,7 +116,7 @@ func (c *Connection) handleCommand(cmd *Command) {
 
 	// Send response
 	if !cmd.Noreply && c.resp.buf.Len() > 0 {
-		c.write(c.resp.Bytes())
+		_ = c.write(c.resp.Bytes())
 	}
 }
 
@@ -142,7 +143,7 @@ func (c *Connection) handleGet(cmd *Command, withCAS bool) {
 		if withCAS {
 			// For CAS, we use a hash of the value as the unique token
 			// In a real implementation, this would be a version number
-			cas := uint64(hashBytes(data))
+			cas := hashBytes(data)
 			c.resp.WriteValueWithCAS(key, flags, data, cas)
 		} else {
 			c.resp.WriteValue(key, flags, data)
@@ -304,7 +305,7 @@ func (c *Connection) handleIncr(cmd *Command, increment bool) {
 }
 
 // handleFlushAll handles flush_all command.
-func (c *Connection) handleFlushAll(cmd *Command) {
+func (c *Connection) handleFlushAll(_ *Command) {
 	c.server.stats.CmdFlush.Add(1)
 
 	// Note: Real flush_all would need to be implemented in the engine
@@ -315,7 +316,7 @@ func (c *Connection) handleFlushAll(cmd *Command) {
 }
 
 // handleStats handles stats command.
-func (c *Connection) handleStats(cmd *Command) {
+func (c *Connection) handleStats(_ *Command) {
 	c.server.stats.CmdOther.Add(1)
 
 	stats := &c.server.stats
@@ -359,7 +360,7 @@ func (c *Connection) handleStats(cmd *Command) {
 }
 
 // handleVersion handles version command.
-func (c *Connection) handleVersion(cmd *Command) {
+func (c *Connection) handleVersion(_ *Command) {
 	c.server.stats.CmdOther.Add(1)
 	c.resp.WriteVersion(c.server.opts.Version)
 }
@@ -375,7 +376,7 @@ func (c *Connection) write(data []byte) error {
 
 	// Set write deadline
 	if c.server.opts.WriteTimeout > 0 {
-		c.conn.SetWriteDeadline(time.Now().Add(c.server.opts.WriteTimeout))
+		_ = c.conn.SetWriteDeadline(time.Now().Add(c.server.opts.WriteTimeout))
 	}
 
 	n, err := c.conn.Write(data)
