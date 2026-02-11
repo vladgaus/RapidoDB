@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rapidodb/rapidodb/pkg/lsm"
+	"github.com/vladgaus/RapidoDB/pkg/lsm"
 )
 
 // testServer creates a test server with a temporary database.

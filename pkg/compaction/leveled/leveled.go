@@ -26,7 +26,7 @@ package leveled
 import (
 	"bytes"
 
-	"github.com/rapidodb/rapidodb/pkg/compaction"
+	"github.com/vladgaus/RapidoDB/pkg/compaction"
 )
 
 // Strategy implements leveled compaction.

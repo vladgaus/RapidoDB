@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/rapidodb/rapidodb/pkg/benchmark"
+	"github.com/vladgaus/RapidoDB/pkg/benchmark"
 )
 
 // Build-time variables

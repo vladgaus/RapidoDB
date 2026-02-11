@@ -46,7 +46,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/rapidodb/rapidodb/pkg/compaction"
+	"github.com/vladgaus/RapidoDB/pkg/compaction"
 )
 
 // Strategy implements FIFO compaction.

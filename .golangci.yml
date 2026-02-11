@@ -53,7 +53,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/rapidodb/rapidodb
+        - github.com/vladgaus/RapidoDB
 
 issues:
   max-issues-per-linter: 50

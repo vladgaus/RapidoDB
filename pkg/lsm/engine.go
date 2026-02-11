@@ -51,11 +51,11 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/rapidodb/rapidodb/pkg/compaction"
-	"github.com/rapidodb/rapidodb/pkg/manifest"
-	"github.com/rapidodb/rapidodb/pkg/memtable"
-	"github.com/rapidodb/rapidodb/pkg/mvcc"
-	"github.com/rapidodb/rapidodb/pkg/wal"
+	"github.com/vladgaus/RapidoDB/pkg/compaction"
+	"github.com/vladgaus/RapidoDB/pkg/manifest"
+	"github.com/vladgaus/RapidoDB/pkg/memtable"
+	"github.com/vladgaus/RapidoDB/pkg/mvcc"
+	"github.com/vladgaus/RapidoDB/pkg/wal"
 )
 
 // Engine is the LSM-tree storage engine.

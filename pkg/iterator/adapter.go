@@ -1,7 +1,7 @@
 package iterator
 
 import (
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // Adapter wraps any iterator that has Entry() method to implement our Iterator interface.

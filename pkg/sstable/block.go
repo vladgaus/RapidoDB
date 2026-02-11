@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/rapidodb/rapidodb/internal/encoding"
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/internal/encoding"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // BlockBuilder builds a data block with restart points for binary search.

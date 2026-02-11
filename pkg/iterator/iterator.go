@@ -37,7 +37,7 @@
 package iterator
 
 import (
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // Iterator extends the base types.Iterator with Entry() method.

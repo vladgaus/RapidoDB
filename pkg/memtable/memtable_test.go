@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/rapidodb/rapidodb/pkg/errors"
+	"github.com/vladgaus/RapidoDB/pkg/errors"
 )
 
 func TestMemTableBasicOperations(t *testing.T) {

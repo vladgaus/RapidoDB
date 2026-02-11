@@ -7,8 +7,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/rapidodb/rapidodb/pkg/bloom"
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/bloom"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // Reader reads entries from an SSTable file.

@@ -40,8 +40,8 @@
 package compaction
 
 import (
-	"github.com/rapidodb/rapidodb/pkg/sstable"
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/sstable"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // StrategyType identifies a compaction strategy.

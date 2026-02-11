@@ -3,8 +3,8 @@ package memtable
 import (
 	"sync/atomic"
 
-	"github.com/rapidodb/rapidodb/pkg/errors"
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/errors"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // MemTable is an in-memory sorted data structure for recent writes.

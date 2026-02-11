@@ -13,8 +13,8 @@ Thank you for your interest in contributing to RapidoDB! This document provides 
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/rapidodb.git
-cd rapidodb
+git clone https://github.com/vladgaus/RapidoDB.git
+cd RapidoDB
 
 # Run tests
 make test
