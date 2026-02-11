@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/rapidodb/rapidodb/internal/encoding"
+	"github.com/rapidodb/rapidodb/pkg/lsm"
 	"github.com/rapidodb/rapidodb/pkg/memtable"
 	"github.com/rapidodb/rapidodb/pkg/types"
 	"github.com/rapidodb/rapidodb/pkg/wal"
@@ -396,5 +397,197 @@ func BenchmarkWALWriteBatch100(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		w.WriteBatch(batch)
+	}
+}
+
+// LSM Engine benchmarks
+
+func BenchmarkLSMPut(b *testing.B) {
+	dir, err := os.MkdirTemp("", "rapidodb-bench-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	opts := lsm.DefaultOptions(dir)
+	opts.MemTableSize = 128 * 1024 * 1024 // Large to avoid flushes
+	engine, err := lsm.Open(opts)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer engine.Close()
+
+	keys := make([][]byte, b.N)
+	value := bytes.Repeat([]byte("v"), 100)
+	for i := 0; i < b.N; i++ {
+		keys[i] = []byte(fmt.Sprintf("key%08d", i))
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		engine.Put(keys[i], value)
+	}
+}
+
+func BenchmarkLSMGet(b *testing.B) {
+	dir, err := os.MkdirTemp("", "rapidodb-bench-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	opts := lsm.DefaultOptions(dir)
+	engine, err := lsm.Open(opts)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer engine.Close()
+
+	// Pre-populate
+	n := 100000
+	keys := make([][]byte, n)
+	value := bytes.Repeat([]byte("v"), 100)
+	for i := 0; i < n; i++ {
+		keys[i] = []byte(fmt.Sprintf("key%08d", i))
+		engine.Put(keys[i], value)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		engine.Get(keys[i%n])
+	}
+}
+
+func BenchmarkLSMPutParallel(b *testing.B) {
+	dir, err := os.MkdirTemp("", "rapidodb-bench-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	opts := lsm.DefaultOptions(dir)
+	opts.MemTableSize = 128 * 1024 * 1024
+	engine, err := lsm.Open(opts)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer engine.Close()
+
+	value := bytes.Repeat([]byte("v"), 100)
+	var counter uint64
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			n := counter
+			counter++
+			key := []byte(fmt.Sprintf("key%08d", n))
+			engine.Put(key, value)
+		}
+	})
+}
+
+func BenchmarkLSMGetParallel(b *testing.B) {
+	dir, err := os.MkdirTemp("", "rapidodb-bench-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	opts := lsm.DefaultOptions(dir)
+	engine, err := lsm.Open(opts)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer engine.Close()
+
+	// Pre-populate
+	n := 100000
+	keys := make([][]byte, n)
+	value := bytes.Repeat([]byte("v"), 100)
+	for i := 0; i < n; i++ {
+		keys[i] = []byte(fmt.Sprintf("key%08d", i))
+		engine.Put(keys[i], value)
+	}
+
+	var counter uint64
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			idx := counter % uint64(n)
+			counter++
+			engine.Get(keys[idx])
+		}
+	})
+}
+
+func BenchmarkLSMIterator(b *testing.B) {
+	dir, err := os.MkdirTemp("", "rapidodb-bench-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	opts := lsm.DefaultOptions(dir)
+	engine, err := lsm.Open(opts)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer engine.Close()
+
+	// Pre-populate
+	n := 10000
+	value := bytes.Repeat([]byte("v"), 100)
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%08d", i))
+		engine.Put(key, value)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		iter := engine.Iterator()
+		count := 0
+		for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+			_ = iter.Key()
+			count++
+		}
+		iter.Close()
+	}
+}
+
+func BenchmarkLSMScan(b *testing.B) {
+	dir, err := os.MkdirTemp("", "rapidodb-bench-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	opts := lsm.DefaultOptions(dir)
+	engine, err := lsm.Open(opts)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer engine.Close()
+
+	// Pre-populate
+	n := 100000
+	value := bytes.Repeat([]byte("v"), 100)
+	for i := 0; i < n; i++ {
+		key := []byte(fmt.Sprintf("key%08d", i))
+		engine.Put(key, value)
+	}
+
+	start := []byte("key00050000")
+	end := []byte("key00051000")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		iter := engine.Scan(start, end)
+		count := 0
+		for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+			count++
+		}
+		iter.Close()
 	}
 }
