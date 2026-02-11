@@ -4,9 +4,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/rapidodb/rapidodb/internal/encoding"
-	"github.com/rapidodb/rapidodb/pkg/errors"
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/internal/encoding"
+	"github.com/vladgaus/RapidoDB/pkg/errors"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // Reader reads entries from a WAL file.

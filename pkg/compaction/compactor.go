@@ -8,7 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/rapidodb/rapidodb/pkg/sstable"
+	"github.com/vladgaus/RapidoDB/pkg/sstable"
 )
 
 // CompactionEdit represents the changes from a compaction operation.

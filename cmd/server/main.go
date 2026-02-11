@@ -9,9 +9,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/rapidodb/rapidodb/pkg/config"
-	"github.com/rapidodb/rapidodb/pkg/lsm"
-	"github.com/rapidodb/rapidodb/pkg/server"
+	"github.com/vladgaus/RapidoDB/pkg/config"
+	"github.com/vladgaus/RapidoDB/pkg/lsm"
+	"github.com/vladgaus/RapidoDB/pkg/server"
 )
 
 // Build-time variables (set by ldflags)

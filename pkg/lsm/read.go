@@ -1,11 +1,11 @@
 package lsm
 
 import (
-	"github.com/rapidodb/rapidodb/pkg/compaction"
-	"github.com/rapidodb/rapidodb/pkg/errors"
-	"github.com/rapidodb/rapidodb/pkg/iterator"
-	"github.com/rapidodb/rapidodb/pkg/mvcc"
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/compaction"
+	"github.com/vladgaus/RapidoDB/pkg/errors"
+	"github.com/vladgaus/RapidoDB/pkg/iterator"
+	"github.com/vladgaus/RapidoDB/pkg/mvcc"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // Get retrieves a value by key.

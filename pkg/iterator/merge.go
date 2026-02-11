@@ -3,7 +3,7 @@ package iterator
 import (
 	"bytes"
 
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // MergeIterator merges multiple sorted iterators into one.

@@ -1,9 +1,9 @@
 package lsm
 
 import (
-	"github.com/rapidodb/rapidodb/pkg/errors"
-	"github.com/rapidodb/rapidodb/pkg/memtable"
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/errors"
+	"github.com/vladgaus/RapidoDB/pkg/memtable"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // Put stores a key-value pair.

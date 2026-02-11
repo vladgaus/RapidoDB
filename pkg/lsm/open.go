@@ -4,17 +4,17 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/rapidodb/rapidodb/pkg/compaction"
-	"github.com/rapidodb/rapidodb/pkg/compaction/fifo"
-	"github.com/rapidodb/rapidodb/pkg/compaction/leveled"
-	"github.com/rapidodb/rapidodb/pkg/compaction/tiered"
-	"github.com/rapidodb/rapidodb/pkg/errors"
-	"github.com/rapidodb/rapidodb/pkg/manifest"
-	"github.com/rapidodb/rapidodb/pkg/memtable"
-	"github.com/rapidodb/rapidodb/pkg/mvcc"
-	"github.com/rapidodb/rapidodb/pkg/sstable"
-	"github.com/rapidodb/rapidodb/pkg/types"
-	"github.com/rapidodb/rapidodb/pkg/wal"
+	"github.com/vladgaus/RapidoDB/pkg/compaction"
+	"github.com/vladgaus/RapidoDB/pkg/compaction/fifo"
+	"github.com/vladgaus/RapidoDB/pkg/compaction/leveled"
+	"github.com/vladgaus/RapidoDB/pkg/compaction/tiered"
+	"github.com/vladgaus/RapidoDB/pkg/errors"
+	"github.com/vladgaus/RapidoDB/pkg/manifest"
+	"github.com/vladgaus/RapidoDB/pkg/memtable"
+	"github.com/vladgaus/RapidoDB/pkg/mvcc"
+	"github.com/vladgaus/RapidoDB/pkg/sstable"
+	"github.com/vladgaus/RapidoDB/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/wal"
 )
 
 // Open opens or creates an LSM engine at the specified directory.
