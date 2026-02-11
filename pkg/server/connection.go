@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -49,7 +50,12 @@ func (c *Connection) Serve(ctx context.Context) {
 		// Read and parse command
 		cmd, err := c.parser.ReadCommand()
 		if err != nil {
+			// EOF means client closed connection - exit silently
 			if err == io.EOF {
+				return
+			}
+			// Check for closed connection errors
+			if isConnectionClosed(err) {
 				return
 			}
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
@@ -73,6 +79,17 @@ func (c *Connection) Serve(ctx context.Context) {
 		// Handle command
 		c.handleCommand(cmd)
 	}
+}
+
+// isConnectionClosed checks if the error indicates a closed connection.
+func isConnectionClosed(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "use of closed network connection") ||
+		strings.Contains(errStr, "connection reset by peer") ||
+		strings.Contains(errStr, "broken pipe")
 }
 
 // handleCommand dispatches and executes a command.

@@ -66,21 +66,31 @@ func (p *Parser) ReadCommand() (*Command, error) {
 	// Read command line
 	line, err := p.reader.ReadString('\n')
 	if err != nil {
-		return nil, err
+		// If we got EOF with no data, return EOF
+		if err == io.EOF && line == "" {
+			return nil, io.EOF
+		}
+		// If we got some data before EOF, try to process it
+		if err == io.EOF && line != "" {
+			// Continue processing below
+		} else {
+			return nil, err
+		}
 	}
 
 	// Trim CRLF
 	line = strings.TrimSuffix(line, "\r\n")
 	line = strings.TrimSuffix(line, "\n")
 
+	// Empty line - could be keep-alive or end of input
 	if line == "" {
-		return nil, ErrBadCommand
+		return nil, io.EOF
 	}
 
 	// Split into parts
 	parts := strings.Fields(line)
 	if len(parts) == 0 {
-		return nil, ErrBadCommand
+		return nil, io.EOF
 	}
 
 	cmd := &Command{
