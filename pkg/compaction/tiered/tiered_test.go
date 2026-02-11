@@ -3,7 +3,7 @@ package tiered
 import (
 	"testing"
 
-	"github.com/rapidodb/rapidodb/pkg/compaction"
+	"github.com/vladgaus/RapidoDB/pkg/compaction"
 )
 
 func TestNewStrategy(t *testing.T) {

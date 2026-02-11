@@ -26,7 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/rapidodb/rapidodb/pkg/lsm"
+	"github.com/vladgaus/RapidoDB/pkg/lsm"
 )
 
 // Server is a TCP server that handles Memcached protocol requests.

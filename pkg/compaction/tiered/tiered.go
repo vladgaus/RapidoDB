@@ -37,7 +37,7 @@ package tiered
 import (
 	"sort"
 
-	"github.com/rapidodb/rapidodb/pkg/compaction"
+	"github.com/vladgaus/RapidoDB/pkg/compaction"
 )
 
 // Strategy implements size-tiered compaction.

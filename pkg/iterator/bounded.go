@@ -3,7 +3,7 @@ package iterator
 import (
 	"bytes"
 
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // BoundedIterator wraps an iterator with range bounds.

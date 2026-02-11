@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/rapidodb/rapidodb/pkg/errors"
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/errors"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // Manager coordinates WAL operations for the storage engine.

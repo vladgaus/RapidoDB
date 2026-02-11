@@ -145,5 +145,5 @@ BenchmarkInternalKeyCompare  263M ops  4.6ns/op   0B/op
 
 ## Release Links
 
-[Unreleased]: https://github.com/rapidodb/rapidodb/compare/v0.1.0...HEAD
-[v0.1.0]: https://github.com/rapidodb/rapidodb/releases/tag/v0.1.0
+[Unreleased]: https://github.com/vladgaus/RapidoDB/compare/v0.1.0...HEAD
+[v0.1.0]: https://github.com/vladgaus/RapidoDB/releases/tag/v0.1.0

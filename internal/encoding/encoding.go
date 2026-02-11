@@ -7,7 +7,7 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // Binary encoding uses Big-Endian byte order.

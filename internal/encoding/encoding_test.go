@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 func TestPutGetUint16(t *testing.T) {

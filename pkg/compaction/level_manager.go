@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/rapidodb/rapidodb/pkg/sstable"
+	"github.com/vladgaus/RapidoDB/pkg/sstable"
 )
 
 // MaxLevels is the maximum number of levels in the LSM tree.

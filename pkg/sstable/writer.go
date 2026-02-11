@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"os"
 
-	"github.com/rapidodb/rapidodb/pkg/bloom"
-	"github.com/rapidodb/rapidodb/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/bloom"
+	"github.com/vladgaus/RapidoDB/pkg/types"
 )
 
 // Writer builds an SSTable file from sorted entries.

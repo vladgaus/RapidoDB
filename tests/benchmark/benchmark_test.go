@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/rapidodb/rapidodb/internal/encoding"
-	"github.com/rapidodb/rapidodb/pkg/lsm"
-	"github.com/rapidodb/rapidodb/pkg/memtable"
-	"github.com/rapidodb/rapidodb/pkg/types"
-	"github.com/rapidodb/rapidodb/pkg/wal"
+	"github.com/vladgaus/RapidoDB/internal/encoding"
+	"github.com/vladgaus/RapidoDB/pkg/lsm"
+	"github.com/vladgaus/RapidoDB/pkg/memtable"
+	"github.com/vladgaus/RapidoDB/pkg/types"
+	"github.com/vladgaus/RapidoDB/pkg/wal"
 )
 
 // Entry encoding benchmarks
