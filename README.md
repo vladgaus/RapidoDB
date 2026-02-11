@@ -168,9 +168,49 @@ rapidodb/
 | 10 | FIFO Compaction | ✅ | Time-based eviction |
 | 11 | MVCC & Snapshots | ✅ | Multi-version concurrency |
 | 12 | Manifest & Recovery | ✅ | Crash recovery |
-| 13 | Iterators | ✅ | Range scans |
+| 13 | Iterators | ✅ | Range scans, prefix scans |
 | 14 | TCP Server | ✅ | Memcached protocol |
-| 15 | Benchmarks | ⏳ | Performance testing |
+| 15 | Benchmarks | ✅ | Performance testing |
+
+## 🔌 Memcached Protocol
+
+RapidoDB supports the Memcached text protocol, allowing you to use any standard memcached client:
+
+```bash
+# Start server
+./build/rapidodb-server --data-dir ./data --port 11211
+
+# SET a value
+printf "set mykey 0 0 5\r\nhello\r\n" | nc localhost 11211
+# STORED
+
+# GET a value
+printf "get mykey\r\n" | nc localhost 11211
+# VALUE mykey 0 5
+# hello
+# END
+
+# DELETE a value
+printf "delete mykey\r\n" | nc localhost 11211
+# DELETED
+```
+
+Supported commands: `get`, `gets`, `set`, `add`, `replace`, `delete`, `incr`, `decr`, `stats`, `version`, `quit`
+
+## 📊 Benchmark Tool
+
+```bash
+# Run all benchmarks
+./build/rapidodb-bench --mode all --num 100000
+
+# Run specific benchmark
+./build/rapidodb-bench --mode fillrandom --num 100000 --workers 4
+
+# TCP benchmarks (requires running server)
+./build/rapidodb-bench --mode tcp-get --server 127.0.0.1:11211 --num 100000
+```
+
+Available modes: `fillseq`, `fillrandom`, `readseq`, `readrandom`, `readwrite`, `scan`, `delete`, `tcp-set`, `tcp-get`, `tcp-mixed`, `all`
 
 ## 🔧 Configuration
 
@@ -213,16 +253,19 @@ server:
   max_connections: 1000
 ```
 
-## 📊 Performance (Target)
+## 📊 Performance
 
-| Operation | Throughput | Latency (p99) |
-|:----------|:-----------|:--------------|
-| Sequential Write | 400K ops/sec | < 50µs |
-| Random Write | 300K ops/sec | < 100µs |
-| Sequential Read | 500K ops/sec | < 30µs |
-| Random Read | 200K ops/sec | < 200µs |
+Benchmark results on a single core (your results may vary):
 
-*Benchmarks run on NVMe SSD with 16 cores*
+| Workload | Throughput | Avg Latency | P99 Latency | MB/s |
+|:---------|:-----------|:------------|:------------|:-----|
+| fillseq | ~100K ops/sec | 9 µs | 25 µs | 11 MB/s |
+| fillrandom | ~100K ops/sec | 9 µs | 22 µs | 11 MB/s |
+| readseq | ~2M ops/sec | 0.15 µs | 0.3 µs | 227 MB/s |
+| readrandom | ~1.8M ops/sec | 0.2 µs | 0.4 µs | 197 MB/s |
+| readwrite (80/20) | ~350K ops/sec | 2.4 µs | 18 µs | 31 MB/s |
+
+*Run with: `./build/rapidodb-bench --mode all --num 100000`*
 
 ## 📖 Learning Resources
 
