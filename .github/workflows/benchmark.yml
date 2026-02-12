@@ -162,8 +162,9 @@ jobs:
         id: parse
         run: |
           # LevelDB outputs "micros/op" not "ops/s", so we need to convert
-          # Format: "fillseq      :       2.843 micros/op;   35.2 MB/s"
-          # Note: benchmark names may have leading spaces, so don't use ^
+          # Format varies:
+          #   fillseq      :       2.495 micros/op;   44.3 MB/s
+          #   readrandom   :       1.308 micros/op; (100000 of 100000 found)
           
           echo "=== LevelDB Raw Output ===" 
           cat leveldb-results.txt
@@ -171,18 +172,15 @@ jobs:
           
           extract_ops() {
             local bench=$1
-            # Use grep without ^ to match anywhere in line, then get micros/op value
-            local line=$(grep -E "^[[:space:]]*$bench[[:space:]]*:" leveldb-results.txt | head -1)
-            echo "DEBUG: Looking for '$bench', found line: '$line'" >&2
+            # Find line containing benchmark name, extract number before "micros/op"
+            local micros=$(grep "$bench" leveldb-results.txt | grep "micros/op" | awk -F':' '{print $2}' | awk '{print $1}' | head -1)
+            echo "DEBUG $bench: micros='$micros'" >&2
             
-            if [ -n "$line" ]; then
-              # Extract the number before "micros/op"
-              local micros=$(echo "$line" | grep -oP '[\d.]+(?=\s*micros/op)' | head -1)
-              echo "DEBUG: Extracted micros: '$micros'" >&2
-              
-              if [ -n "$micros" ] && [ "$micros" != "0" ]; then
-                # Convert micros/op to ops/s: 1,000,000 / micros
-                echo "scale=0; 1000000 / $micros" | bc
+            if [ -n "$micros" ] && [ "$micros" != "0" ]; then
+              # Convert micros/op to ops/s: 1,000,000 / micros
+              local ops=$(echo "scale=0; 1000000 / $micros" | bc 2>/dev/null)
+              if [ -n "$ops" ]; then
+                echo "$ops"
               else
                 echo "N/A"
               fi
@@ -196,15 +194,21 @@ jobs:
           READSEQ=$(extract_ops "readseq")
           READRANDOM=$(extract_ops "readrandom")
           
+          echo "DEBUG: FILLSEQ=$FILLSEQ FILLRANDOM=$FILLRANDOM READSEQ=$READSEQ READRANDOM=$READRANDOM" >&2
+          
           echo "fillseq=$FILLSEQ" >> $GITHUB_OUTPUT
           echo "fillrandom=$FILLRANDOM" >> $GITHUB_OUTPUT
           echo "readseq=$READSEQ" >> $GITHUB_OUTPUT
           echo "readrandom=$READRANDOM" >> $GITHUB_OUTPUT
           
           echo "### LevelDB Results" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat leveldb-results.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Benchmark | micros/op | ops/s |" >> $GITHUB_STEP_SUMMARY
+          echo "|:----------|----------:|------:|" >> $GITHUB_STEP_SUMMARY
+          echo "| fillseq | $(grep 'fillseq' leveldb-results.txt | grep 'micros/op' | awk -F':' '{print $2}' | awk '{print $1}' | head -1) | $FILLSEQ |" >> $GITHUB_STEP_SUMMARY
+          echo "| fillrandom | $(grep 'fillrandom' leveldb-results.txt | grep 'micros/op' | awk -F':' '{print $2}' | awk '{print $1}' | head -1) | $FILLRANDOM |" >> $GITHUB_STEP_SUMMARY
+          echo "| readseq | $(grep 'readseq' leveldb-results.txt | grep 'micros/op' | awk -F':' '{print $2}' | awk '{print $1}' | head -1) | $READSEQ |" >> $GITHUB_STEP_SUMMARY
+          echo "| readrandom | $(grep 'readrandom' leveldb-results.txt | grep 'micros/op' | awk -F':' '{print $2}' | awk '{print $1}' | head -1) | $READRANDOM |" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Results
         uses: actions/upload-artifact@v4
