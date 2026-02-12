@@ -57,8 +57,8 @@ services:
     command: >
       sh -c "redis-server --daemonize yes --appendonly yes --appendfsync everysec && 
              sleep 2 && 
-             echo '=== Redis Benchmark (with AOF persistence) ===' > /results/redis.txt &&
-             redis-benchmark -t set,get -n ${NUM_OPS:-100000} -d ${VALUE_SIZE:-100} -P 1 --csv 2>&1 | tee -a /results/redis.txt"
+             echo '=== Redis Benchmark (with AOF persistence, P=16) ===' > /results/redis.txt &&
+             redis-benchmark -t set,get -n ${NUM_OPS:-100000} -d ${VALUE_SIZE:-100} -P 16 --csv 2>&1 | tee -a /results/redis.txt"
 
   leveldb-bench:
     build:

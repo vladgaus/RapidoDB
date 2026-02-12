@@ -47,12 +47,14 @@ sleep 2
 # Check Redis is running
 redis-cli ping
 
-echo "=== Redis SET (write) benchmark ===" | tee "$OUTPUT_DIR/redis.txt"
-redis-benchmark -t set -n "$NUM_OPS" -d "$VALUE_SIZE" -P 1 --csv 2>&1 | tee -a "$OUTPUT_DIR/redis.txt"
+# Redis benchmark with pipelining (P=16) for realistic throughput
+# Note: Redis is in-memory + network, others are embedded disk-based
+echo "=== Redis SET (write) benchmark (P=16) ===" | tee "$OUTPUT_DIR/redis.txt"
+redis-benchmark -t set -n "$NUM_OPS" -d "$VALUE_SIZE" -P 16 --csv 2>&1 | tee -a "$OUTPUT_DIR/redis.txt"
 
 echo "" >> "$OUTPUT_DIR/redis.txt"
-echo "=== Redis GET (read) benchmark ===" >> "$OUTPUT_DIR/redis.txt"
-redis-benchmark -t get -n "$NUM_OPS" -d "$VALUE_SIZE" -P 1 --csv 2>&1 | tee -a "$OUTPUT_DIR/redis.txt"
+echo "=== Redis GET (read) benchmark (P=16) ===" >> "$OUTPUT_DIR/redis.txt"
+redis-benchmark -t get -n "$NUM_OPS" -d "$VALUE_SIZE" -P 16 --csv 2>&1 | tee -a "$OUTPUT_DIR/redis.txt"
 
 # Stop Redis
 redis-cli shutdown nosave 2>/dev/null || true
@@ -162,6 +164,7 @@ printf "│ readrandom  │ %11s │ %11s │ %11s │ %11s │\n" "$RAPIDODB_RE
 echo "└─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘"
 echo ""
 echo "* Redis runs with AOF persistence (appendfsync everysec) for fair comparison"
+echo "* Redis seq/random show same value: Redis is hash-based, no sequential vs random distinction"
 echo ""
 
 echo "┌─────────────────────────────────────────────────────────────────────┐"

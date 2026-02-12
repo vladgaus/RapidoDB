@@ -133,18 +133,20 @@ jobs:
 
       - name: Run Benchmark
         run: |
-          # Redis benchmark outputs ops/sec directly
-          # -t set,get covers our use cases
-          # -d sets value size
-          # -n sets number of operations
-          # -P 1 disables pipelining for fair comparison
+          # Redis benchmark with pipelining for realistic throughput
+          # -P 16 = send 16 commands at once (typical production usage)
+          # Note: Redis is in-memory + network, others are embedded disk-based
           
-          echo "=== Redis SET (fillrandom equivalent) ===" | tee redis-results.txt
-          redis-benchmark -t set -n ${{ env.NUM_OPS }} -d ${{ env.VALUE_SIZE }} -P 1 --csv 2>&1 | tee -a redis-results.txt
+          echo "=== Redis SET (write) benchmark ===" | tee redis-results.txt
+          redis-benchmark -t set -n ${{ env.NUM_OPS }} -d ${{ env.VALUE_SIZE }} -P 16 --csv 2>&1 | tee -a redis-results.txt
           
           echo "" >> redis-results.txt
-          echo "=== Redis GET (readrandom equivalent) ===" >> redis-results.txt
-          redis-benchmark -t get -n ${{ env.NUM_OPS }} -d ${{ env.VALUE_SIZE }} -P 1 --csv 2>&1 | tee -a redis-results.txt
+          echo "=== Redis GET (read) benchmark ===" >> redis-results.txt
+          redis-benchmark -t get -n ${{ env.NUM_OPS }} -d ${{ env.VALUE_SIZE }} -P 16 --csv 2>&1 | tee -a redis-results.txt
+          
+          echo "" >> redis-results.txt
+          echo "=== Redis Single-Request Latency (no pipelining) ===" >> redis-results.txt
+          redis-benchmark -t set,get -n 10000 -d ${{ env.VALUE_SIZE }} -P 1 --csv 2>&1 | tee -a redis-results.txt
 
       - name: Parse Results
         id: parse
@@ -320,20 +322,16 @@ jobs:
         id: cache-rocksdb
         uses: actions/cache@v4
         with:
-          path: |
-            rocksdb
-            ~/.ccache
-          key: rocksdb-v8.10.0-${{ runner.os }}-${{ hashFiles('.github/workflows/benchmark.yml') }}
-          restore-keys: |
-            rocksdb-v8.10.0-${{ runner.os }}-
+          path: rocksdb
+          key: rocksdb-v8.10.0-release-${{ runner.os }}-v2
 
       - name: Build RocksDB
         if: steps.cache-rocksdb.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch v8.10.0 https://github.com/facebook/rocksdb.git
           cd rocksdb
-          # Use portable build for better caching compatibility
-          PORTABLE=1 make db_bench -j$(nproc)
+          # Build in RELEASE mode (DEBUG_LEVEL=0) for faster build and accurate benchmarks
+          DEBUG_LEVEL=0 PORTABLE=1 make db_bench -j$(nproc)
 
       - name: Run Benchmark
         run: |
@@ -403,7 +401,7 @@ jobs:
           echo "| readseq | ${{ needs.rapidodb.outputs.readseq }} | ${{ needs.redis.outputs.readseq }} | ${{ needs.leveldb.outputs.readseq }} | ${{ needs.rocksdb.outputs.readseq }} |" >> report.md
           echo "| readrandom | ${{ needs.rapidodb.outputs.readrandom }} | ${{ needs.redis.outputs.readrandom }} | ${{ needs.leveldb.outputs.readrandom }} | ${{ needs.rocksdb.outputs.readrandom }} |" >> report.md
           echo "" >> report.md
-          echo "_*Redis runs with AOF persistence enabled (appendfsync everysec) for fair comparison_" >> report.md
+          echo "_*Redis with AOF persistence + pipelining (P=16). Note: Redis is in-memory with network access; others are embedded disk-based._" >> report.md
           echo "" >> report.md
           
           echo "## Database Comparison" >> report.md

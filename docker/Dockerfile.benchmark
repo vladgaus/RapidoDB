@@ -35,10 +35,10 @@ RUN git clone --branch 1.23 https://github.com/google/leveldb.git /leveldb && \
           -DLEVELDB_BUILD_BENCHMARKS=ON .. && \
     make db_bench -j$(nproc)
 
-# Build RocksDB (takes ~10-15 minutes)
+# Build RocksDB (release mode for accurate benchmarks)
 RUN git clone --depth 1 --branch v8.10.0 https://github.com/facebook/rocksdb.git /rocksdb && \
     cd /rocksdb && \
-    PORTABLE=1 make db_bench -j$(nproc)
+    DEBUG_LEVEL=0 PORTABLE=1 make db_bench -j$(nproc)
 
 # Build RapidoDB
 COPY . /rapidodb
