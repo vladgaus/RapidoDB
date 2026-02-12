@@ -337,37 +337,77 @@ Benchmark results on a single core (your results will vary based on hardware):
 
 ## 🔄 Comparing with LevelDB/RocksDB
 
-To compare RapidoDB with production databases:
+### Option 1: GitHub Actions (Easiest - Free for Public Repos)
 
-### Install LevelDB benchmark tool
+Just go to **Actions** tab → **Benchmark** → **Run workflow**:
+
+The workflow will:
+1. Build RapidoDB, LevelDB, and RocksDB on identical runners
+2. Run standardized benchmarks
+3. Generate a comparison report with table
+4. Upload results as downloadable artifacts
+
+You can customize parameters:
+- `num_ops`: Number of operations (default: 100,000)
+- `value_size`: Value size in bytes (default: 100)
+- `compare_dbs`: Include LevelDB/RocksDB (default: true)
+
+Results are **cached**, so LevelDB/RocksDB don't rebuild every time.
+
+### Option 2: Docker (Recommended for Local Testing)
+
+Run benchmarks in Docker without installing LevelDB/RocksDB:
 
 ```bash
-# Build LevelDB with benchmarks
+# Build the all-in-one benchmark image (first time takes ~15-20 min)
+docker-compose build benchmark
+
+# Run full comparison
+docker-compose run benchmark
+
+# Run with custom parameters
+docker-compose run -e NUM_OPS=500000 -e VALUE_SIZE=1000 benchmark
+
+# Or use make shortcut
+make docker-bench
+```
+
+Results are saved to `./benchmark-results/`:
+- `rapidodb.txt`
+- `leveldb.txt`
+- `rocksdb.txt`
+
+### Option 3: Install Locally
+
+If you prefer to build everything locally:
+
+#### Install LevelDB benchmark tool
+
+```bash
 git clone https://github.com/google/leveldb.git
 cd leveldb
 mkdir -p build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
 
-# Run LevelDB benchmark
+# Run benchmark
 ./db_bench --benchmarks=fillseq,fillrandom,readseq,readrandom \
            --num=100000 --value_size=100
 ```
 
-### Install RocksDB benchmark tool
+#### Install RocksDB benchmark tool
 
 ```bash
-# Build RocksDB with db_bench
 git clone https://github.com/facebook/rocksdb.git
 cd rocksdb
 make db_bench -j$(nproc)
 
-# Run RocksDB benchmark
+# Run benchmark
 ./db_bench --benchmarks=fillseq,fillrandom,readseq,readrandom \
            --num=100000 --value_size=100
 ```
 
-### Run RapidoDB benchmark
+#### Run RapidoDB benchmark
 
 ```bash
 ./build/rapidodb-bench --mode all --num 100000 --value-size 100
@@ -377,9 +417,11 @@ make db_bench -j$(nproc)
 
 | Database | fillrandom | readrandom | Notes |
 |:---------|:-----------|:-----------|:------|
-| RapidoDB | ~100K ops/s | ~1.8M ops/s | Limited Production, single-threaded |
+| RapidoDB | ~100K ops/s | ~1.8M ops/s | Educational, single-threaded |
 | LevelDB | ~200K ops/s | ~500K ops/s | Production, optimized C++ |
 | RocksDB | ~400K ops/s | ~800K ops/s | Production, highly optimized |
+
+*RapidoDB is intentionally slower because it prioritizes code clarity over optimization.*
 
 ## 🖥️ Deployment Guide
 
