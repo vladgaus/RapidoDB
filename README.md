@@ -623,25 +623,6 @@ server:
 - [CMU 15-445 Database Systems](https://15445.courses.cs.cmu.edu/)
 - [MIT 6.824 Distributed Systems](https://pdos.csail.mit.edu/6.824/)
 
-## 💼 Pricing Plans (Coming Soon)
-
-| Plan | Price | Features |
-|:-----|------:|:---------|
-| **Community** | Free | Full engine, self-hosted, community support |
-| **Pro** | $29/mo | Priority email support, early access to updates |
-| **Team** | $99/mo | 5 instances, monitoring dashboard, Slack support |
-| **Business** | $299/mo | Unlimited instances, 99.9% SLA, phone support |
-| **Enterprise** | Custom | On-premise, custom SLA, training, white-label |
-
-### RapidoDB Cloud (Planned)
-
-| Tier | RAM | Storage | Price |
-|:-----|----:|--------:|------:|
-| **Starter** | 512MB | 10GB | $9/mo |
-| **Growth** | 2GB | 50GB | $29/mo |
-| **Scale** | 8GB | 200GB | $99/mo |
-| **Pro** | 32GB | 1TB | $299/mo |
-
 ## 📄 License
 
 **Business Source License 1.1** — See [LICENSE](LICENSE) file for details.
