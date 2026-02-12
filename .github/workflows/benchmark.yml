@@ -148,23 +148,44 @@ jobs:
       - name: Run Benchmark
         run: |
           cd leveldb/build
-          ./db_bench --benchmarks=fillseq,fillrandom,readseq,readrandom \
+          # Run fill first, then reads on same DB
+          # Note: LevelDB clears DB between benchmarks by default
+          ./db_bench --benchmarks=fillseq,readrandom,readseq \
                      --num=${{ env.NUM_OPS }} \
                      --value_size=${{ env.VALUE_SIZE }} 2>&1 | tee ../../leveldb-results.txt
+          # Run fillrandom separately
+          ./db_bench --benchmarks=fillrandom \
+                     --num=${{ env.NUM_OPS }} \
+                     --value_size=${{ env.VALUE_SIZE }} 2>&1 | tee -a ../../leveldb-results.txt
 
       - name: Parse Results
         id: parse
         run: |
           # LevelDB outputs "micros/op" not "ops/s", so we need to convert
           # Format: "fillseq      :       2.843 micros/op;   35.2 MB/s"
-          # Extract micros/op (column 3) and convert to ops/s
+          # Note: benchmark names may have leading spaces, so don't use ^
+          
+          echo "=== LevelDB Raw Output ===" 
+          cat leveldb-results.txt
+          echo "=========================="
           
           extract_ops() {
             local bench=$1
-            local micros=$(grep "^$bench" leveldb-results.txt | awk '{print $3}' | head -1)
-            if [ -n "$micros" ] && [ "$micros" != "0" ]; then
-              # Convert micros/op to ops/s: 1,000,000 / micros
-              echo "scale=0; 1000000 / $micros" | bc
+            # Use grep without ^ to match anywhere in line, then get micros/op value
+            local line=$(grep -E "^[[:space:]]*$bench[[:space:]]*:" leveldb-results.txt | head -1)
+            echo "DEBUG: Looking for '$bench', found line: '$line'" >&2
+            
+            if [ -n "$line" ]; then
+              # Extract the number before "micros/op"
+              local micros=$(echo "$line" | grep -oP '[\d.]+(?=\s*micros/op)' | head -1)
+              echo "DEBUG: Extracted micros: '$micros'" >&2
+              
+              if [ -n "$micros" ] && [ "$micros" != "0" ]; then
+                # Convert micros/op to ops/s: 1,000,000 / micros
+                echo "scale=0; 1000000 / $micros" | bc
+              else
+                echo "N/A"
+              fi
             else
               echo "N/A"
             fi
