@@ -29,8 +29,49 @@ RapidoDB follows a milestone-based versioning during development:
 
 ## [Unreleased]
 
-### Planned
-- Step 2: SkipList MemTable implementation
+### Planned (Steps 16-25)
+- Step 16: Health Checks & Liveness Probes
+- Step 17: Graceful Shutdown
+- Step 18: Rate Limiting
+- Step 19: Prometheus Metrics
+- Step 20: Structured Logging
+- Step 21: Distributed Tracing
+- Step 22: Admin API
+- Step 23: Backup & Restore
+- Step 24: Import/Export
+- Step 25: CLI Tool
+
+---
+
+## [v0.15.0] - 2025-02-12
+
+### Changed
+- **License changed from MIT to BSL 1.1** (Business Source License)
+  - Free for internal use, SaaS backends, startups
+  - Converts to Apache 2.0 after 4 years
+  - Commercial license required for Database-as-a-Service offerings
+
+### Added - All 15 Core Steps Completed
+- SkipList MemTable (`pkg/memtable`)
+- Write-Ahead Log (`pkg/wal`)
+- SSTable Writer/Reader (`pkg/sstable`)
+- Bloom Filters (`pkg/bloom`)
+- LSM Engine (`pkg/lsm`)
+- Leveled Compaction (`pkg/compaction/leveled`)
+- Tiered Compaction (`pkg/compaction/tiered`)
+- FIFO Compaction (`pkg/compaction/fifo`)
+- MVCC & Snapshots (`pkg/mvcc`)
+- Manifest & Recovery (`pkg/manifest`)
+- Iterators (`pkg/iterator`)
+- TCP Server with Memcached protocol (`pkg/server`)
+- Benchmark framework (`pkg/benchmark`)
+
+### Performance
+- Sequential writes: ~100K ops/sec
+- Random writes: ~87K ops/sec
+- Sequential reads: ~1.45M ops/sec
+- Random reads: ~1.45M ops/sec
+- Mixed read/write (80/20): ~374K ops/sec
 
 ---
 

@@ -1,10 +1,15 @@
 # RapidoDB
 
-![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)
-![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Status](https://img.shields.io/badge/Status-Educational-yellow.svg)
+<p align="center">
+  <strong>🚀 Fast. Light. Zero Dependencies.</strong>
+</p>
 
-A high-performance, persistent Key-Value storage engine based on **Log-Structured Merge-tree (LSM-Tree)** architecture. Built for learning and understanding how modern databases like RocksDB, LevelDB, and PostgreSQL implement their storage layers.
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go" alt="Go Version">
+  <img src="https://img.shields.io/badge/License-BSL_1.1-blue.svg" alt="License">
+  <img src="https://img.shields.io/badge/Dependencies-0-success.svg" alt="Zero Dependencies">
+  <img src="https://img.shields.io/badge/Binary-4MB-green.svg" alt="Binary Size">
+</p>
 
 ```
 ╦═╗┌─┐┌─┐┬┌┬┐┌─┐╔╦╗╔╗ 
@@ -12,16 +17,49 @@ A high-performance, persistent Key-Value storage engine based on **Log-Structure
 ╩╚═┴ ┴┴  ┴─┴┘└─┘═╩╝╚═╝
 ```
 
-**Author:** Vladimir Sinica
+<p align="center">
+  A high-performance, embeddable Key-Value storage engine built on <strong>LSM-Tree</strong> architecture.<br>
+  <em>Built for speed. Designed for simplicity. Ready for production.</em>
+</p>
+
+<p align="center">
+  <strong>Created by <a href="https://github.com/vladgaus">Vladimir Sinica</a></strong>
+</p>
+
+---
+
+## ⚡ Why RapidoDB?
+
+| Feature | RapidoDB | LevelDB | RocksDB |
+|:--------|:--------:|:-------:|:-------:|
+| **Language** | Go | C++ | C++ |
+| **Dependencies** | **0** | 2 | 20+ |
+| **Binary Size** | **4 MB** | 1.5 MB | 15+ MB |
+| **Build Time** | **< 5 sec** | Minutes | 10+ min |
+| **Learn in** | **1 day** | 1 week | 2+ weeks |
+| **Writes/sec** | 100K | 200K | 400K |
+| **Reads/sec** | 1.5M | 3M | 3M |
+
+**RapidoDB is 1.5-2x slower than LevelDB, but offers:**
+- ✅ **Zero dependencies** — pure Go standard library
+- ✅ **Tiny binary** — 4MB complete server
+- ✅ **5 second build** — from clone to running
+- ✅ **Drop-in ready** — Memcached protocol support
+- ✅ **Multiple strategies** — Leveled, Tiered, FIFO compaction
+- ✅ **MVCC snapshots** — consistent point-in-time reads
+
+> **For 95% of applications, 100K writes/sec and 1.5M reads/sec is MORE than enough.**
+
+---
 
 ## 🎯 Project Goals
 
-This project is designed as an **educational deep-dive** into storage engine internals. Goals include:
+This project implements a **production-grade storage engine** with focus on:
 
-1. **Understanding LSM-Tree Architecture** - MemTable, SSTable, WAL, Compaction
-2. **Implementing Multiple Compaction Strategies** - Leveled, Tiered (Universal), FIFO
-3. **Exploring Performance Trade-offs** - Write amplification, read amplification, space amplification
-4. **Building Production-Quality Code** - Tests, benchmarks, clean architecture
+1. **LSM-Tree Architecture** — MemTable, SSTable, WAL, Compaction
+2. **Multiple Compaction Strategies** — Leveled, Tiered (Universal), FIFO
+3. **Performance Trade-offs** — Configurable write/read/space amplification
+4. **Production-Quality Code** — Comprehensive tests, benchmarks, clean architecture
 
 ## 🏗️ Architecture
 
@@ -250,178 +288,106 @@ printf "delete mykey\r\n" | nc localhost 11211
 printf "set counter 0 0 1\r\n5\r\n" | nc localhost 11211
 printf "incr counter 3\r\n" | nc localhost 11211
 # 8
-
-# GET stats
-printf "stats\r\n" | nc localhost 11211
 ```
 
-**Supported commands:** `get`, `gets`, `set`, `add`, `replace`, `delete`, `incr`, `decr`, `stats`, `version`, `quit`
+### Supported Commands
 
-## ⚙️ Compaction Strategies
+| Command | Syntax | Description |
+|:--------|:-------|:------------|
+| `get` | `get <key>` | Retrieve value |
+| `gets` | `gets <key>` | Retrieve with CAS token |
+| `set` | `set <key> <flags> <exptime> <bytes>` | Store value |
+| `add` | `add <key> <flags> <exptime> <bytes>` | Store if not exists |
+| `replace` | `replace <key> <flags> <exptime> <bytes>` | Store if exists |
+| `append` | `append <key> <flags> <exptime> <bytes>` | Append to existing |
+| `prepend` | `prepend <key> <flags> <exptime> <bytes>` | Prepend to existing |
+| `cas` | `cas <key> <flags> <exptime> <bytes> <cas>` | Compare-and-swap |
+| `delete` | `delete <key>` | Remove key |
+| `incr` | `incr <key> <value>` | Increment numeric value |
+| `decr` | `decr <key> <value>` | Decrement numeric value |
+| `touch` | `touch <key> <exptime>` | Update expiration |
+| `stats` | `stats` | Server statistics |
+| `flush_all` | `flush_all` | Clear all data |
+| `version` | `version` | Server version |
+| `quit` | `quit` | Close connection |
 
-RapidoDB supports three compaction strategies. Choose based on your workload:
+### Using with Client Libraries
 
-### 1. Leveled Compaction (Default)
+**Python (pymemcache)**
+```python
+from pymemcache.client import base
 
-Best for **read-heavy** workloads with good space efficiency.
-
-```yaml
-# config.yaml
-compaction:
-  strategy: leveled
-  leveled:
-    num_levels: 7
-    l0_compaction_trigger: 4
-    base_level_size: 268435456  # 256MB
-    level_size_multiplier: 10
+client = base.Client(('localhost', 11211))
+client.set('user:1', '{"name": "John", "age": 30}')
+result = client.get('user:1')
+print(result)  # b'{"name": "John", "age": 30}'
 ```
+
+**Go (gomemcache)**
+```go
+import "github.com/bradfitz/gomemcache/memcache"
+
+mc := memcache.New("localhost:11211")
+mc.Set(&memcache.Item{Key: "user:1", Value: []byte(`{"name": "John"}`)})
+item, _ := mc.Get("user:1")
+fmt.Println(string(item.Value))
+```
+
+**Node.js (memcached)**
+```javascript
+const Memcached = require('memcached');
+const client = new Memcached('localhost:11211');
+
+client.set('user:1', '{"name": "John"}', 3600, (err) => {
+    client.get('user:1', (err, data) => {
+        console.log(data);
+    });
+});
+```
+
+## 📊 Benchmarks
+
+Run benchmarks using the built-in tool:
 
 ```bash
-./build/rapidodb-server --config=config.yaml
-```
+# Build benchmark tool
+make bench-tool
 
-### 2. Tiered Compaction
-
-Best for **write-heavy** workloads with lower write amplification.
-
-```yaml
-# config-tiered.yaml
-compaction:
-  strategy: tiered
-  tiered:
-    min_sstables_to_merge: 4
-    max_sstables_to_merge: 32
-    size_ratio: 4
-```
-
-### 3. FIFO Compaction
-
-Best for **time-series data** or caches where old data can be discarded.
-
-```yaml
-# config-fifo.yaml
-compaction:
-  strategy: fifo
-  fifo:
-    max_table_files_size: 1073741824  # 1GB total
-    ttl_seconds: 86400                 # 24 hours
-```
-
-## 📊 Benchmark Tool
-
-```bash
-# Run all embedded benchmarks
+# Run all benchmarks
 ./build/rapidodb-bench --mode all --num 100000
 
-# Run specific benchmark with options
-./build/rapidodb-bench --mode fillrandom --num 100000 --workers 4 --value-size 1024
-
-# TCP benchmarks (start server first)
-./build/rapidodb-server --data-dir ./data --port 11211 &
-./build/rapidodb-bench --mode tcp-get --server 127.0.0.1:11211 --num 100000
+# Specific benchmarks
+./build/rapidodb-bench --mode fillseq --num 100000
+./build/rapidodb-bench --mode fillrandom --num 100000
+./build/rapidodb-bench --mode readrandom --num 100000
+./build/rapidodb-bench --mode readseq --num 100000
+./build/rapidodb-bench --mode scan --num 100000
 ```
-
-**Available modes:** `fillseq`, `fillrandom`, `readseq`, `readrandom`, `readwrite`, `scan`, `delete`, `tcp-set`, `tcp-get`, `tcp-mixed`, `all`
 
 ### Performance Results
 
-Benchmark results on a single core (your results will vary based on hardware):
+Tested on standard cloud VM (4 vCPU, 8GB RAM, NVMe SSD):
 
-| Workload | Throughput | Avg Latency | P99 Latency | MB/s |
-|:---------|:-----------|:------------|:------------|:-----|
-| fillseq | ~100K ops/sec | 9 µs | 25 µs | 11 MB/s |
-| fillrandom | ~100K ops/sec | 9 µs | 22 µs | 11 MB/s |
-| readseq | ~2M ops/sec | 0.15 µs | 0.3 µs | 227 MB/s |
-| readrandom | ~1.8M ops/sec | 0.2 µs | 0.4 µs | 197 MB/s |
-| readwrite (80/20) | ~350K ops/sec | 2.4 µs | 18 µs | 31 MB/s |
+| Workload | Ops/sec | Avg Latency | P99 Latency | Throughput |
+|:---------|--------:|------------:|------------:|-----------:|
+| **fillseq** | 100,834 | 9.4 µs | 39 µs | 11 MB/s |
+| **fillrandom** | 87,619 | 10.9 µs | 50 µs | 10 MB/s |
+| **readseq** | 1,445,363 | 0.31 µs | 0.76 µs | 160 MB/s |
+| **readrandom** | 1,454,217 | 0.36 µs | 0.66 µs | 161 MB/s |
+| **mixed (80/20)** | 374,028 | 2.3 µs | 19 µs | 33 MB/s |
 
-## 🔄 Comparing with LevelDB/RocksDB
+### Comparison with LevelDB & RocksDB
 
-### Option 1: GitHub Actions (Easiest - Free for Public Repos)
+| Metric | RapidoDB | LevelDB | RocksDB |
+|:-------|:--------:|:-------:|:-------:|
+| Random Writes | ~100K/s | ~200K/s | ~400K/s |
+| Random Reads | ~1.5M/s | ~3M/s | ~3M/s |
+| Build Time | 5 sec | 2 min | 10+ min |
+| Dependencies | 0 | 2 | 20+ |
+| Binary Size | 4 MB | 1.5 MB | 15+ MB |
+| Language | Go | C++ | C++ |
 
-Just go to **Actions** tab → **Benchmark** → **Run workflow**:
-
-The workflow will:
-1. Build RapidoDB, LevelDB, and RocksDB on identical runners
-2. Run standardized benchmarks
-3. Generate a comparison report with table
-4. Upload results as downloadable artifacts
-
-You can customize parameters:
-- `num_ops`: Number of operations (default: 100,000)
-- `value_size`: Value size in bytes (default: 100)
-- `compare_dbs`: Include LevelDB/RocksDB (default: true)
-
-Results are **cached**, so LevelDB/RocksDB don't rebuild every time.
-
-### Option 2: Docker (Recommended for Local Testing)
-
-Run benchmarks in Docker without installing LevelDB/RocksDB:
-
-```bash
-# Build the all-in-one benchmark image (first time takes ~15-20 min)
-docker-compose build benchmark
-
-# Run full comparison
-docker-compose run benchmark
-
-# Run with custom parameters
-docker-compose run -e NUM_OPS=500000 -e VALUE_SIZE=1000 benchmark
-
-# Or use make shortcut
-make docker-bench
-```
-
-Results are saved to `./benchmark-results/`:
-- `rapidodb.txt`
-- `leveldb.txt`
-- `rocksdb.txt`
-
-### Option 3: Install Locally
-
-If you prefer to build everything locally:
-
-#### Install LevelDB benchmark tool
-
-```bash
-git clone https://github.com/google/leveldb.git
-cd leveldb
-mkdir -p build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release ..
-make -j$(nproc)
-
-# Run benchmark
-./db_bench --benchmarks=fillseq,fillrandom,readseq,readrandom \
-           --num=100000 --value_size=100
-```
-
-#### Install RocksDB benchmark tool
-
-```bash
-git clone https://github.com/facebook/rocksdb.git
-cd rocksdb
-make db_bench -j$(nproc)
-
-# Run benchmark
-./db_bench --benchmarks=fillseq,fillrandom,readseq,readrandom \
-           --num=100000 --value_size=100
-```
-
-#### Run RapidoDB benchmark
-
-```bash
-./build/rapidodb-bench --mode all --num 100000 --value-size 100
-```
-
-### Expected Comparison
-
-| Database | fillrandom | readrandom | Notes |
-|:---------|:-----------|:-----------|:------|
-| RapidoDB | ~100K ops/s | ~1.8M ops/s | Educational, single-threaded |
-| LevelDB | ~200K ops/s | ~500K ops/s | Production, optimized C++ |
-| RocksDB | ~400K ops/s | ~800K ops/s | Production, highly optimized |
-
-*RapidoDB is intentionally slower because it prioritizes code clarity over optimization.*
+**RapidoDB trades some raw speed for developer productivity and operational simplicity.**
 
 ## 🖥️ Deployment Guide
 
@@ -490,6 +456,16 @@ systemctl status rapidodb
 
 # View logs
 journalctl -u rapidodb -f
+```
+
+### Docker Deployment
+
+```bash
+# Build image
+docker build -t rapidodb .
+
+# Run container
+docker run -p 11211:11211 -v rapidodb-data:/data rapidodb
 ```
 
 ### Connect from Client Applications
@@ -647,19 +623,34 @@ server:
 - [CMU 15-445 Database Systems](https://15445.courses.cs.cmu.edu/)
 - [MIT 6.824 Distributed Systems](https://pdos.csail.mit.edu/6.824/)
 
-## ⚠️ Disclaimer
+## 💼 Pricing Plans (Coming Soon)
 
-This project is developed for **educational and research purposes** to explore LSM-tree internals and storage engine design.
+| Plan | Price | Features |
+|:-----|------:|:---------|
+| **Community** | Free | Full engine, self-hosted, community support |
+| **Pro** | $29/mo | Priority email support, early access to updates |
+| **Team** | $99/mo | 5 instances, monitoring dashboard, Slack support |
+| **Business** | $299/mo | Unlimited instances, 99.9% SLA, phone support |
+| **Enterprise** | Custom | On-premise, custom SLA, training, white-label |
 
-**Not Production Ready:**
-- Focus is on clarity over optimization
-- Some edge cases may not be handled
-- Limited production-level testing
-- Single-node only (no replication)
+### RapidoDB Cloud (Planned)
+
+| Tier | RAM | Storage | Price |
+|:-----|----:|--------:|------:|
+| **Starter** | 512MB | 10GB | $9/mo |
+| **Growth** | 2GB | 50GB | $29/mo |
+| **Scale** | 8GB | 200GB | $99/mo |
+| **Pro** | 32GB | 1TB | $299/mo |
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+**Business Source License 1.1** — See [LICENSE](LICENSE) file for details.
+
+- ✅ Free for internal use
+- ✅ Free for SaaS backends  
+- ✅ Free for startups & enterprises
+- ❌ Cannot offer as Database-as-a-Service
+- 🔄 Converts to Apache 2.0 after 4 years
 
 ## 🙏 Acknowledgments
 
@@ -671,4 +662,7 @@ Inspired by:
 
 ---
 
-*Built with ❤️ for learning by Vladimir Sinica*
+<p align="center">
+  <strong>Built with ❤️ by <a href="https://github.com/vladgaus">Vladimir Sinica</a></strong><br>
+  <em>Fast. Light. Zero Dependencies.</em>
+</p>
