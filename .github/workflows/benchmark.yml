@@ -129,15 +129,15 @@ jobs:
       - name: Build LevelDB
         if: steps.cache-leveldb.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 --branch 1.23 https://github.com/google/leveldb.git
+          git clone --branch 1.23 https://github.com/google/leveldb.git
           cd leveldb
-          git submodule update --init --recursive
+          git submodule update --init --recursive  # This fetches googletest
           mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_CXX_STANDARD=17 \
-                -DLEVELDB_BUILD_TESTS=OFF \
+                -DLEVELDB_BUILD_TESTS=ON \
                 -DLEVELDB_BUILD_BENCHMARKS=ON ..
-          make -j$(nproc)
+          make db_bench -j$(nproc)
 
       - name: Run Benchmark
         run: |
