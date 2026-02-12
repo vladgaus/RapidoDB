@@ -1,0 +1,15 @@
+# Docker ignore file
+build/
+benchmark-results/
+*.tar.gz
+*.zip
+.git/
+.gitignore
+*.md
+!README.md
+LICENSE
+coverage.out
+coverage.html
+rapidodb_data/
+testdata/
+benchmark_data/
