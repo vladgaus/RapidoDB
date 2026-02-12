@@ -1,0 +1,23 @@
+# RocksDB Benchmark Dockerfile
+FROM ubuntu:22.04
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    libgflags-dev \
+    libsnappy-dev \
+    zlib1g-dev \
+    libbz2-dev \
+    liblz4-dev \
+    libzstd-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone and build RocksDB (use specific tag for stability)
+RUN git clone --depth 1 --branch v8.10.0 https://github.com/facebook/rocksdb.git /rocksdb && \
+    cd /rocksdb && \
+    make db_bench -j$(nproc)
+
+WORKDIR /rocksdb
+
+CMD ["./db_bench"]
