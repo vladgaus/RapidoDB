@@ -9,12 +9,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone and build LevelDB
-RUN git clone --depth 1 https://github.com/google/leveldb.git /leveldb && \
+RUN git clone --branch 1.23 https://github.com/google/leveldb.git /leveldb && \
     cd /leveldb && \
     git submodule update --init --recursive && \
     mkdir -p build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DLEVELDB_BUILD_TESTS=OFF -DLEVELDB_BUILD_BENCHMARKS=ON .. && \
-    make -j$(nproc)
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_STANDARD=17 \
+          -DLEVELDB_BUILD_TESTS=ON \
+          -DLEVELDB_BUILD_BENCHMARKS=ON .. && \
+    make db_bench -j$(nproc)
 
 WORKDIR /leveldb/build
 

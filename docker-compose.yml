@@ -4,11 +4,17 @@
 #   # Run RapidoDB server
 #   docker-compose up rapidodb
 #
-#   # Run full benchmark comparison (RapidoDB vs LevelDB vs RocksDB)
+#   # Run full benchmark comparison (RapidoDB vs LevelDB vs RocksDB vs Redis)
 #   docker-compose run benchmark
 #
 #   # Run with custom parameters
 #   docker-compose run -e NUM_OPS=500000 -e VALUE_SIZE=1000 benchmark
+#
+#   # Run individual benchmarks
+#   docker-compose run rapidodb-bench
+#   docker-compose run redis-bench
+#   docker-compose run leveldb-bench
+#   docker-compose run rocksdb-bench
 
 version: '3.8'
 
@@ -43,6 +49,16 @@ services:
     volumes:
       - ./benchmark-results:/results
     command: sh -c "rapidodb-bench --mode all --num ${NUM_OPS:-100000} --value-size ${VALUE_SIZE:-100} 2>&1 | tee /results/rapidodb.txt"
+
+  redis-bench:
+    image: redis:7-alpine
+    volumes:
+      - ./benchmark-results:/results
+    command: >
+      sh -c "redis-server --daemonize yes --appendonly yes --appendfsync everysec && 
+             sleep 2 && 
+             echo '=== Redis Benchmark (with AOF persistence, P=16) ===' > /results/redis.txt &&
+             redis-benchmark -t set,get -n ${NUM_OPS:-100000} -d ${VALUE_SIZE:-100} -P 16 --csv 2>&1 | tee -a /results/redis.txt"
 
   leveldb-bench:
     build:
