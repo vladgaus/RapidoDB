@@ -13,10 +13,10 @@ RUN apt-get update && apt-get install -y \
     libzstd-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone and build RocksDB (use specific tag for stability)
+# Clone and build RocksDB (release mode for accurate benchmarks)
 RUN git clone --depth 1 --branch v8.10.0 https://github.com/facebook/rocksdb.git /rocksdb && \
     cd /rocksdb && \
-    make db_bench -j$(nproc)
+    DEBUG_LEVEL=0 PORTABLE=1 make db_bench -j$(nproc)
 
 WORKDIR /rocksdb
 

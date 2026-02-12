@@ -1,5 +1,5 @@
 # Benchmark Workflow
-# Compares RapidoDB vs LevelDB vs RocksDB
+# Compares RapidoDB vs LevelDB vs RocksDB vs Redis
 #
 # Triggers:
 #   - Manual: Actions tab -> "Run workflow"
@@ -23,7 +23,7 @@ on:
         required: false
         default: '100'
       compare_dbs:
-        description: 'Compare with LevelDB/RocksDB'
+        description: 'Compare with other databases'
         required: false
         default: true
         type: boolean
@@ -106,6 +106,89 @@ jobs:
           path: rapidodb-results.txt
 
   # ============================================================================
+  # Redis Benchmark (in-memory baseline)
+  # ============================================================================
+  redis:
+    name: Redis Benchmark
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: github.event.inputs.compare_dbs != 'false'
+    outputs:
+      fillseq: ${{ steps.parse.outputs.fillseq }}
+      fillrandom: ${{ steps.parse.outputs.fillrandom }}
+      readseq: ${{ steps.parse.outputs.readseq }}
+      readrandom: ${{ steps.parse.outputs.readrandom }}
+    steps:
+      - name: Install Redis
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server redis-tools
+
+      - name: Start Redis with Persistence
+        run: |
+          # Run Redis with AOF persistence enabled (fair comparison)
+          redis-server --daemonize yes --appendonly yes --appendfsync everysec
+          sleep 2
+          redis-cli ping
+
+      - name: Run Benchmark
+        run: |
+          # Redis benchmark with pipelining for realistic throughput
+          # -P 16 = send 16 commands at once (typical production usage)
+          # Note: Redis is in-memory + network, others are embedded disk-based
+          
+          echo "=== Redis SET (write) benchmark ===" | tee redis-results.txt
+          redis-benchmark -t set -n ${{ env.NUM_OPS }} -d ${{ env.VALUE_SIZE }} -P 16 --csv 2>&1 | tee -a redis-results.txt
+          
+          echo "" >> redis-results.txt
+          echo "=== Redis GET (read) benchmark ===" >> redis-results.txt
+          redis-benchmark -t get -n ${{ env.NUM_OPS }} -d ${{ env.VALUE_SIZE }} -P 16 --csv 2>&1 | tee -a redis-results.txt
+          
+          echo "" >> redis-results.txt
+          echo "=== Redis Single-Request Latency (no pipelining) ===" >> redis-results.txt
+          redis-benchmark -t set,get -n 10000 -d ${{ env.VALUE_SIZE }} -P 1 --csv 2>&1 | tee -a redis-results.txt
+
+      - name: Parse Results
+        id: parse
+        run: |
+          # Redis CSV format: "TEST","RPS","AVG_LATENCY_MS","MIN_LATENCY_MS","P50","P95","P99","MAX_LATENCY_MS"
+          # Extract RPS (requests per second) for SET and GET
+          
+          echo "=== Redis Raw Output ==="
+          cat redis-results.txt
+          echo "========================"
+          
+          # Extract SET ops/s (fillrandom equivalent)
+          FILLRANDOM=$(grep '"SET"' redis-results.txt | head -1 | cut -d',' -f2 | tr -d '"' || echo "N/A")
+          # For fillseq, use same as fillrandom (Redis doesn't distinguish)
+          FILLSEQ=$FILLRANDOM
+          
+          # Extract GET ops/s (readrandom equivalent)
+          READRANDOM=$(grep '"GET"' redis-results.txt | head -1 | cut -d',' -f2 | tr -d '"' || echo "N/A")
+          # For readseq, use same as readrandom (Redis doesn't have sequential read)
+          READSEQ=$READRANDOM
+          
+          echo "DEBUG: FILLSEQ=$FILLSEQ FILLRANDOM=$FILLRANDOM READSEQ=$READSEQ READRANDOM=$READRANDOM"
+          
+          echo "fillseq=$FILLSEQ" >> $GITHUB_OUTPUT
+          echo "fillrandom=$FILLRANDOM" >> $GITHUB_OUTPUT
+          echo "readseq=$READSEQ" >> $GITHUB_OUTPUT
+          echo "readrandom=$READRANDOM" >> $GITHUB_OUTPUT
+          
+          echo "### Redis Results (with AOF persistence)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Operation | ops/s |" >> $GITHUB_STEP_SUMMARY
+          echo "|:----------|------:|" >> $GITHUB_STEP_SUMMARY
+          echo "| SET (write) | $FILLRANDOM |" >> $GITHUB_STEP_SUMMARY
+          echo "| GET (read) | $READRANDOM |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: redis-results
+          path: redis-results.txt
+
+  # ============================================================================
   # LevelDB Benchmark (optional)
   # ============================================================================
   leveldb:
@@ -149,7 +232,6 @@ jobs:
         run: |
           cd leveldb/build
           # Run fill first, then reads on same DB
-          # Note: LevelDB clears DB between benchmarks by default
           ./db_bench --benchmarks=fillseq,readrandom,readseq \
                      --num=${{ env.NUM_OPS }} \
                      --value_size=${{ env.VALUE_SIZE }} 2>&1 | tee ../../leveldb-results.txt
@@ -203,12 +285,12 @@ jobs:
           
           echo "### LevelDB Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Benchmark | micros/op | ops/s |" >> $GITHUB_STEP_SUMMARY
-          echo "|:----------|----------:|------:|" >> $GITHUB_STEP_SUMMARY
-          echo "| fillseq | $(grep 'fillseq' leveldb-results.txt | grep 'micros/op' | awk -F':' '{print $2}' | awk '{print $1}' | head -1) | $FILLSEQ |" >> $GITHUB_STEP_SUMMARY
-          echo "| fillrandom | $(grep 'fillrandom' leveldb-results.txt | grep 'micros/op' | awk -F':' '{print $2}' | awk '{print $1}' | head -1) | $FILLRANDOM |" >> $GITHUB_STEP_SUMMARY
-          echo "| readseq | $(grep 'readseq' leveldb-results.txt | grep 'micros/op' | awk -F':' '{print $2}' | awk '{print $1}' | head -1) | $READSEQ |" >> $GITHUB_STEP_SUMMARY
-          echo "| readrandom | $(grep 'readrandom' leveldb-results.txt | grep 'micros/op' | awk -F':' '{print $2}' | awk '{print $1}' | head -1) | $READRANDOM |" >> $GITHUB_STEP_SUMMARY
+          echo "| Benchmark | ops/s |" >> $GITHUB_STEP_SUMMARY
+          echo "|:----------|------:|" >> $GITHUB_STEP_SUMMARY
+          echo "| fillseq | $FILLSEQ |" >> $GITHUB_STEP_SUMMARY
+          echo "| fillrandom | $FILLRANDOM |" >> $GITHUB_STEP_SUMMARY
+          echo "| readseq | $READSEQ |" >> $GITHUB_STEP_SUMMARY
+          echo "| readrandom | $READRANDOM |" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Results
         uses: actions/upload-artifact@v4
@@ -217,7 +299,7 @@ jobs:
           path: leveldb-results.txt
 
   # ============================================================================
-  # RocksDB Benchmark (optional)
+  # RocksDB Benchmark (optional) - with improved caching
   # ============================================================================
   rocksdb:
     name: RocksDB Benchmark
@@ -236,19 +318,20 @@ jobs:
           sudo apt-get install -y build-essential libgflags-dev libsnappy-dev \
                zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
 
-      - name: Cache RocksDB
+      - name: Cache RocksDB Build
         id: cache-rocksdb
         uses: actions/cache@v4
         with:
           path: rocksdb
-          key: rocksdb-build-v8.10.0-${{ runner.os }}
+          key: rocksdb-v8.10.0-release-${{ runner.os }}-v2
 
       - name: Build RocksDB
         if: steps.cache-rocksdb.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch v8.10.0 https://github.com/facebook/rocksdb.git
           cd rocksdb
-          make db_bench -j$(nproc)
+          # Build in RELEASE mode (DEBUG_LEVEL=0) for faster build and accurate benchmarks
+          DEBUG_LEVEL=0 PORTABLE=1 make db_bench -j$(nproc)
 
       - name: Run Benchmark
         run: |
@@ -271,9 +354,13 @@ jobs:
           echo "readrandom=$READRANDOM" >> $GITHUB_OUTPUT
           
           echo "### RocksDB Results" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat rocksdb-results.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Benchmark | ops/s |" >> $GITHUB_STEP_SUMMARY
+          echo "|:----------|------:|" >> $GITHUB_STEP_SUMMARY
+          echo "| fillseq | $FILLSEQ |" >> $GITHUB_STEP_SUMMARY
+          echo "| fillrandom | $FILLRANDOM |" >> $GITHUB_STEP_SUMMARY
+          echo "| readseq | $READSEQ |" >> $GITHUB_STEP_SUMMARY
+          echo "| readrandom | $READRANDOM |" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Results
         uses: actions/upload-artifact@v4
@@ -287,7 +374,7 @@ jobs:
   summary:
     name: Generate Summary
     runs-on: ubuntu-latest
-    needs: [rapidodb, leveldb, rocksdb]
+    needs: [rapidodb, redis, leveldb, rocksdb]
     if: always() && needs.rapidodb.result == 'success'
     steps:
       - name: Download All Results
@@ -307,53 +394,51 @@ jobs:
           
           echo "## Results Summary" >> report.md
           echo "" >> report.md
-          echo "| Workload | RapidoDB | LevelDB | RocksDB |" >> report.md
-          echo "|:---------|:---------|:--------|:--------|" >> report.md
-          echo "| fillseq | ${{ needs.rapidodb.outputs.fillseq }} ops/s | ${{ needs.leveldb.outputs.fillseq }} ops/s | ${{ needs.rocksdb.outputs.fillseq }} ops/s |" >> report.md
-          echo "| fillrandom | ${{ needs.rapidodb.outputs.fillrandom }} ops/s | ${{ needs.leveldb.outputs.fillrandom }} ops/s | ${{ needs.rocksdb.outputs.fillrandom }} ops/s |" >> report.md
-          echo "| readseq | ${{ needs.rapidodb.outputs.readseq }} ops/s | ${{ needs.leveldb.outputs.readseq }} ops/s | ${{ needs.rocksdb.outputs.readseq }} ops/s |" >> report.md
-          echo "| readrandom | ${{ needs.rapidodb.outputs.readrandom }} ops/s | ${{ needs.leveldb.outputs.readrandom }} ops/s | ${{ needs.rocksdb.outputs.readrandom }} ops/s |" >> report.md
+          echo "| Workload | RapidoDB | Redis* | LevelDB | RocksDB |" >> report.md
+          echo "|:---------|:---------|:-------|:--------|:--------|" >> report.md
+          echo "| fillseq | ${{ needs.rapidodb.outputs.fillseq }} | ${{ needs.redis.outputs.fillseq }} | ${{ needs.leveldb.outputs.fillseq }} | ${{ needs.rocksdb.outputs.fillseq }} |" >> report.md
+          echo "| fillrandom | ${{ needs.rapidodb.outputs.fillrandom }} | ${{ needs.redis.outputs.fillrandom }} | ${{ needs.leveldb.outputs.fillrandom }} | ${{ needs.rocksdb.outputs.fillrandom }} |" >> report.md
+          echo "| readseq | ${{ needs.rapidodb.outputs.readseq }} | ${{ needs.redis.outputs.readseq }} | ${{ needs.leveldb.outputs.readseq }} | ${{ needs.rocksdb.outputs.readseq }} |" >> report.md
+          echo "| readrandom | ${{ needs.rapidodb.outputs.readrandom }} | ${{ needs.redis.outputs.readrandom }} | ${{ needs.leveldb.outputs.readrandom }} | ${{ needs.rocksdb.outputs.readrandom }} |" >> report.md
+          echo "" >> report.md
+          echo "_*Redis with AOF persistence + pipelining (P=16). Note: Redis is in-memory with network access; others are embedded disk-based._" >> report.md
+          echo "" >> report.md
+          
+          echo "## Database Comparison" >> report.md
+          echo "" >> report.md
+          echo "| Feature | RapidoDB | Redis | LevelDB | RocksDB |" >> report.md
+          echo "|:--------|:--------:|:-----:|:-------:|:-------:|" >> report.md
+          echo "| Storage | Disk (LSM) | In-Memory | Disk (LSM) | Disk (LSM) |" >> report.md
+          echo "| Language | Go | C | C++ | C++ |" >> report.md
+          echo "| Dependencies | **0** | 3+ | 2 | 20+ |" >> report.md
+          echo "| Data > RAM | ✅ | ❌ | ✅ | ✅ |" >> report.md
+          echo "| Always Persistent | ✅ | Optional | ✅ | ✅ |" >> report.md
           echo "" >> report.md
           
           echo "## Notes" >> report.md
           echo "" >> report.md
-          echo "- RapidoDB prioritizes simplicity and zero dependencies over raw performance" >> report.md
-          echo "- LevelDB and RocksDB are highly optimized C++ implementations" >> report.md
-          echo "- RapidoDB offers: zero dependencies, 4MB binary, 5-second build time" >> report.md
+          echo "- **RapidoDB**: Zero dependencies, 4MB binary, 5-second build, pure Go" >> report.md
+          echo "- **Redis**: In-memory (fastest), limited by RAM size" >> report.md
+          echo "- **LevelDB**: Original LSM implementation by Google" >> report.md
+          echo "- **RocksDB**: Highly optimized, 20+ dependencies, long build time" >> report.md
           echo "- Results may vary based on GitHub Actions runner availability" >> report.md
           echo "" >> report.md
           
           echo "## Full Results" >> report.md
           echo "" >> report.md
-          echo "<details>" >> report.md
-          echo "<summary>RapidoDB Full Output</summary>" >> report.md
-          echo "" >> report.md
-          echo '```' >> report.md
-          cat results/rapidodb-results/rapidodb-results.txt >> report.md || echo "Not available"
-          echo '```' >> report.md
-          echo "</details>" >> report.md
-          echo "" >> report.md
           
-          if [ -f results/leveldb-results/leveldb-results.txt ]; then
-            echo "<details>" >> report.md
-            echo "<summary>LevelDB Full Output</summary>" >> report.md
-            echo "" >> report.md
-            echo '```' >> report.md
-            cat results/leveldb-results/leveldb-results.txt >> report.md
-            echo '```' >> report.md
-            echo "</details>" >> report.md
-            echo "" >> report.md
-          fi
-          
-          if [ -f results/rocksdb-results/rocksdb-results.txt ]; then
-            echo "<details>" >> report.md
-            echo "<summary>RocksDB Full Output</summary>" >> report.md
-            echo "" >> report.md
-            echo '```' >> report.md
-            cat results/rocksdb-results/rocksdb-results.txt >> report.md
-            echo '```' >> report.md
-            echo "</details>" >> report.md
-          fi
+          for db in rapidodb redis leveldb rocksdb; do
+            if [ -f "results/${db}-results/${db}-results.txt" ]; then
+              echo "<details>" >> report.md
+              echo "<summary>${db^} Full Output</summary>" >> report.md
+              echo "" >> report.md
+              echo '```' >> report.md
+              cat "results/${db}-results/${db}-results.txt" >> report.md
+              echo '```' >> report.md
+              echo "</details>" >> report.md
+              echo "" >> report.md
+            fi
+          done
           
           cat report.md >> $GITHUB_STEP_SUMMARY
 
@@ -365,14 +450,13 @@ jobs:
 
       - name: Comment on PR
         if: github.event_name == 'pull_request'
-        continue-on-error: true  # Don't fail workflow if comment fails (e.g., fork PRs)
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const report = fs.readFileSync('report.md', 'utf8');
             
-            // Find existing comment
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,

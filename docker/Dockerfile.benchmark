@@ -1,5 +1,5 @@
 # All-in-One Benchmark Dockerfile
-# Contains: RapidoDB, LevelDB, RocksDB
+# Contains: RapidoDB, LevelDB, RocksDB, Redis
 # This ensures fair comparison on the same machine/container
 
 FROM ubuntu:22.04 AS builder
@@ -25,17 +25,20 @@ RUN wget -q https://go.dev/dl/go1.22.0.linux-amd64.tar.gz && \
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Build LevelDB
-RUN git clone --depth 1 https://github.com/google/leveldb.git /leveldb && \
+RUN git clone --branch 1.23 https://github.com/google/leveldb.git /leveldb && \
     cd /leveldb && \
     git submodule update --init --recursive && \
     mkdir -p build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DLEVELDB_BUILD_TESTS=OFF -DLEVELDB_BUILD_BENCHMARKS=ON .. && \
-    make -j$(nproc)
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_STANDARD=17 \
+          -DLEVELDB_BUILD_TESTS=ON \
+          -DLEVELDB_BUILD_BENCHMARKS=ON .. && \
+    make db_bench -j$(nproc)
 
-# Build RocksDB (takes ~10-15 minutes)
+# Build RocksDB (release mode for accurate benchmarks)
 RUN git clone --depth 1 --branch v8.10.0 https://github.com/facebook/rocksdb.git /rocksdb && \
     cd /rocksdb && \
-    make db_bench -j$(nproc)
+    DEBUG_LEVEL=0 PORTABLE=1 make db_bench -j$(nproc)
 
 # Build RapidoDB
 COPY . /rapidodb
@@ -46,7 +49,7 @@ RUN cd /rapidodb && \
 # Runtime stage
 FROM ubuntu:22.04
 
-# Install runtime dependencies
+# Install runtime dependencies + Redis
 RUN apt-get update && apt-get install -y \
     libgflags2.2 \
     libsnappy1v5 \
@@ -54,6 +57,9 @@ RUN apt-get update && apt-get install -y \
     libbz2-1.0 \
     liblz4-1 \
     libzstd1 \
+    redis-server \
+    redis-tools \
+    bc \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy binaries

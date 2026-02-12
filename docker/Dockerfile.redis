@@ -1,0 +1,12 @@
+# Redis Benchmark Dockerfile
+# For comparing RapidoDB with Redis (in-memory baseline)
+
+FROM redis:7-alpine
+
+# Install redis-benchmark tool (included in redis package)
+RUN apk add --no-cache bash
+
+WORKDIR /benchmarks
+
+# Default: run with AOF persistence for fair comparison
+CMD ["sh", "-c", "redis-server --daemonize yes --appendonly yes --appendfsync everysec && sleep 2 && redis-benchmark -t set,get -n ${NUM_OPS:-100000} -d ${VALUE_SIZE:-100} -P 1 --csv"]
