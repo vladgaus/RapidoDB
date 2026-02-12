@@ -1,0 +1,64 @@
+# Docker Compose for RapidoDB
+# 
+# Usage:
+#   # Run RapidoDB server
+#   docker-compose up rapidodb
+#
+#   # Run full benchmark comparison (RapidoDB vs LevelDB vs RocksDB)
+#   docker-compose run benchmark
+#
+#   # Run with custom parameters
+#   docker-compose run -e NUM_OPS=500000 -e VALUE_SIZE=1000 benchmark
+
+version: '3.8'
+
+services:
+  # RapidoDB Server
+  rapidodb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "11211:11211"
+    volumes:
+      - rapidodb-data:/data
+    restart: unless-stopped
+
+  # All-in-one benchmark comparison
+  benchmark:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.benchmark
+    volumes:
+      - ./benchmark-results:/benchmarks/results
+    environment:
+      - NUM_OPS=${NUM_OPS:-100000}
+      - VALUE_SIZE=${VALUE_SIZE:-100}
+
+  # Individual benchmarks (lighter builds)
+  rapidodb-bench:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./benchmark-results:/results
+    command: sh -c "rapidodb-bench --mode all --num ${NUM_OPS:-100000} --value-size ${VALUE_SIZE:-100} 2>&1 | tee /results/rapidodb.txt"
+
+  leveldb-bench:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.leveldb
+    volumes:
+      - ./benchmark-results:/results
+    command: sh -c "./db_bench --benchmarks=fillseq,fillrandom,readseq,readrandom --num=${NUM_OPS:-100000} --value_size=${VALUE_SIZE:-100} 2>&1 | tee /results/leveldb.txt"
+
+  rocksdb-bench:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.rocksdb
+    volumes:
+      - ./benchmark-results:/results
+    command: sh -c "./db_bench --benchmarks=fillseq,fillrandom,readseq,readrandom --num=${NUM_OPS:-100000} --value_size=${VALUE_SIZE:-100} 2>&1 | tee /results/rocksdb.txt"
+
+volumes:
+  rapidodb-data:

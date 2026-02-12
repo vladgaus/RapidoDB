@@ -135,6 +135,24 @@ run-bench: bench-tool
 	@echo "Running RapidoDB benchmark tool..."
 	$(BUILD_DIR)/$(BENCH_BINARY) --mode all --num 10000
 
+# Docker benchmark comparison (RapidoDB vs LevelDB vs RocksDB)
+docker-bench:
+	@echo "Running Docker benchmark comparison..."
+	@echo "This may take 15-20 minutes on first run (building LevelDB/RocksDB)"
+	@mkdir -p benchmark-results
+	docker-compose build benchmark
+	docker-compose run benchmark
+
+# Build Docker image
+docker-build:
+	@echo "Building RapidoDB Docker image..."
+	docker build -t rapidodb:latest .
+
+# Run RapidoDB in Docker
+docker-run:
+	@echo "Running RapidoDB in Docker..."
+	docker run -p 11211:11211 -v rapidodb-data:/data rapidodb:latest
+
 # Help
 help:
 	@echo "RapidoDB - High-Performance LSM-Tree Key-Value Store"
@@ -166,6 +184,11 @@ help:
 	@echo "  run          - Run the server"
 	@echo "  run-race     - Run server with race detector"
 	@echo "  run-bench    - Run benchmark tool"
+	@echo ""
+	@echo "Docker targets:"
+	@echo "  docker-build - Build Docker image"
+	@echo "  docker-run   - Run RapidoDB in Docker"
+	@echo "  docker-bench - Compare with LevelDB/RocksDB (Docker)"
 	@echo ""
 	@echo "Other:"
 	@echo "  deps         - Download dependencies"
