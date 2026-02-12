@@ -46,6 +46,11 @@ env:
   NUM_OPS: ${{ github.event.inputs.num_ops || '100000' }}
   VALUE_SIZE: ${{ github.event.inputs.value_size || '100' }}
 
+# Required for PR comments
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   # ============================================================================
   # RapidoDB Benchmark
@@ -124,14 +129,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: leveldb
-          key: leveldb-build-v1.23-${{ runner.os }}
+          key: leveldb-build-v1.23-full-${{ runner.os }}
 
       - name: Build LevelDB
         if: steps.cache-leveldb.outputs.cache-hit != 'true'
         run: |
+          # Clone WITHOUT --depth 1 to properly fetch submodules
           git clone --branch 1.23 https://github.com/google/leveldb.git
           cd leveldb
-          git submodule update --init --recursive  # This fetches googletest
+          git submodule update --init --recursive
           mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_CXX_STANDARD=17 \
@@ -273,7 +279,7 @@ jobs:
           echo "" >> report.md
           echo "- RapidoDB prioritizes simplicity and zero dependencies over raw performance" >> report.md
           echo "- LevelDB and RocksDB are highly optimized C++ implementations" >> report.md
-          echo "- RapidoDB is 1.5-2x slower but offers: zero dependencies, 4MB binary, 5-second build" >> report.md
+          echo "- RapidoDB offers: zero dependencies, 4MB binary, 5-second build time" >> report.md
           echo "- Results may vary based on GitHub Actions runner availability" >> report.md
           echo "" >> report.md
           
@@ -319,6 +325,7 @@ jobs:
 
       - name: Comment on PR
         if: github.event_name == 'pull_request'
+        continue-on-error: true  # Don't fail workflow if comment fails (e.g., fork PRs)
         uses: actions/github-script@v7
         with:
           script: |
