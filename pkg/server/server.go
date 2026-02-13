@@ -282,3 +282,31 @@ func (s *Server) Engine() *lsm.Engine {
 func (s *Server) Options() Options {
 	return s.opts
 }
+
+// ============================================================================
+// Health Check Interface Implementation
+// ============================================================================
+
+// ActiveConnections returns the current number of active connections.
+// Implements health.ServerStatsProvider.
+func (s *Server) ActiveConnections() int64 {
+	return s.stats.ActiveConns.Load()
+}
+
+// TotalConnections returns the total number of connections since start.
+// Implements health.ServerStatsProvider.
+func (s *Server) TotalConnections() uint64 {
+	return s.stats.TotalConnections.Load()
+}
+
+// GetHits returns the number of cache hits.
+// Implements health.ServerStatsProvider.
+func (s *Server) GetHits() uint64 {
+	return s.stats.GetHits.Load()
+}
+
+// GetMisses returns the number of cache misses.
+// Implements health.ServerStatsProvider.
+func (s *Server) GetMisses() uint64 {
+	return s.stats.GetMisses.Load()
+}

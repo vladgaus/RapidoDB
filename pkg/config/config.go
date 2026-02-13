@@ -48,6 +48,9 @@ type Config struct {
 
 	// Server configuration
 	Server ServerConfig `json:"server"`
+
+	// Health check configuration
+	Health HealthConfig `json:"health"`
 }
 
 // MemTableConfig holds MemTable-specific configuration.
@@ -224,6 +227,37 @@ type ServerConfig struct {
 	WriteTimeout time.Duration `json:"write_timeout"`
 }
 
+// HealthConfig holds health check server settings.
+type HealthConfig struct {
+	// Enabled determines if the health HTTP server is started.
+	// Default: true
+	Enabled bool `json:"enabled"`
+
+	// Host is the address to bind the health server to.
+	// Default: "0.0.0.0"
+	Host string `json:"host"`
+
+	// Port is the port for the health HTTP server.
+	// Default: 8080
+	Port int `json:"port"`
+
+	// DiskPath is the path to monitor for disk health.
+	// Default: same as DataDir
+	DiskPath string `json:"disk_path"`
+
+	// DiskWarningPercent is the disk usage percentage that triggers warning.
+	// Default: 80
+	DiskWarningPercent float64 `json:"disk_warning_percent"`
+
+	// DiskCriticalPercent is the disk usage percentage that triggers critical.
+	// Default: 95
+	DiskCriticalPercent float64 `json:"disk_critical_percent"`
+
+	// MemoryMaxHeapMB is the max heap size in MB before warning (0 = no limit).
+	// Default: 0
+	MemoryMaxHeapMB int64 `json:"memory_max_heap_mb"`
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -277,6 +311,15 @@ func DefaultConfig() *Config {
 			MaxConnections: 1000,
 			ReadTimeout:    30 * time.Second,
 			WriteTimeout:   30 * time.Second,
+		},
+		Health: HealthConfig{
+			Enabled:             true,
+			Host:                "0.0.0.0",
+			Port:                8080,
+			DiskPath:            "", // Will default to DataDir
+			DiskWarningPercent:  80.0,
+			DiskCriticalPercent: 95.0,
+			MemoryMaxHeapMB:     0, // No limit
 		},
 	}
 }

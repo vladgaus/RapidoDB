@@ -224,6 +224,10 @@ RapidoDB/
 │   │   └── config.go
 │   ├── errors/              # Custom error types
 │   │   └── errors.go
+│   ├── health/              # Health checks & probes
+│   │   ├── health.go        # Health checker core
+│   │   ├── checker.go       # Individual health checkers
+│   │   └── http.go          # HTTP health endpoints
 │   ├── iterator/            # Iterator implementations
 │   │   ├── iterator.go      # Base interfaces
 │   │   ├── merge.go         # Merge iterator
@@ -377,6 +381,115 @@ client.set('user:1', '{"name": "John"}', 3600, (err) => {
         console.log(data);
     });
 });
+```
+
+## 🏥 Health Check API
+
+RapidoDB includes a built-in HTTP health check server for monitoring and Kubernetes integration.
+
+```bash
+# Start server (health server runs on port 8080 by default)
+./build/rapidodb-server --data-dir ./data
+
+# Or specify a custom health port
+./build/rapidodb-server --data-dir ./data --health-port 9090
+
+# Disable health server
+./build/rapidodb-server --data-dir ./data --no-health
+```
+
+### Health Endpoints
+
+| Endpoint | Description | Use Case |
+|:---------|:------------|:---------|
+| `GET /health` | Full health report with all checks | Monitoring dashboards |
+| `GET /health/live` | Liveness probe (is process alive?) | Kubernetes liveness |
+| `GET /health/ready` | Readiness probe (ready for traffic?) | Kubernetes readiness |
+
+### Example Requests
+
+```bash
+# Full health status
+curl http://localhost:8080/health
+# {
+#   "status": "healthy",
+#   "uptime": "24h30m0s",
+#   "version": "RapidoDB/0.15.0",
+#   "checks": [
+#     {"name": "memory", "status": "healthy", "message": "Heap: 45.2 MB used"},
+#     {"name": "disk", "status": "healthy", "message": "25.3% used (150.2 GB free)"},
+#     {"name": "engine", "status": "healthy", "message": "Engine is running"},
+#     {"name": "server", "status": "healthy", "message": "42 active connections"}
+#   ]
+# }
+
+# Kubernetes liveness probe
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health/live
+# 200
+
+# Kubernetes readiness probe  
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health/ready
+# 200
+
+# Detailed liveness response
+curl http://localhost:8080/health/live
+# {"status": "live", "uptime": "24h30m0s"}
+
+# Detailed readiness response
+curl http://localhost:8080/health/ready
+# {"status": "ready", "version": "RapidoDB/0.15.0"}
+```
+
+### Health Checks Included
+
+| Check | Monitors | Degraded | Unhealthy |
+|:------|:---------|:---------|:----------|
+| **Memory** | Heap usage, GC pressure | GC rate > 10/s | — |
+| **Disk** | Data directory free space | > 80% used | > 95% or < 100MB |
+| **Engine** | LSM engine state | — | Engine closed |
+| **Server** | Active connections | > 80% of max | > 95% of max |
+
+### Kubernetes Integration
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+      - name: rapidodb
+        image: rapidodb:latest
+        ports:
+        - containerPort: 11211  # Memcached protocol
+        - containerPort: 8080   # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+```
+
+### Health Configuration
+
+```json
+{
+  "health": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8080,
+    "disk_warning_percent": 80,
+    "disk_critical_percent": 95,
+    "memory_max_heap_mb": 0
+  }
+}
 ```
 
 ## 📊 Benchmarks
@@ -666,7 +779,7 @@ server:
 - [CMU 15-445 Database Systems](https://15445.courses.cs.cmu.edu/)
 - [MIT 6.824 Distributed Systems](https://pdos.csail.mit.edu/6.824/)
 
-##  License
+## 📄 License
 
 **Business Source License 1.1** — See [LICENSE](LICENSE) file for details.
 
