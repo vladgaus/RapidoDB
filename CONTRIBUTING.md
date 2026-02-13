@@ -183,6 +183,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 - `config`: Configuration
 - `encoding`: Binary encoding
 - `health`: Health checks
+- `graceful`: Graceful Shutdown
 
 ### Examples
 
