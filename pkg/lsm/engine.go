@@ -258,3 +258,8 @@ func formatFileNum(num uint64) string {
 func (e *Engine) allocateFileNum() uint64 {
 	return e.nextFileNum.Add(1)
 }
+
+// IsClosed returns true if the engine has been closed.
+func (e *Engine) IsClosed() bool {
+	return e.closed.Load()
+}

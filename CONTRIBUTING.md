@@ -182,6 +182,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 - `server`: TCP server
 - `config`: Configuration
 - `encoding`: Binary encoding
+- `health`: Health checks
 
 ### Examples
 
