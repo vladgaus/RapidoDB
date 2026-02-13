@@ -51,6 +51,9 @@ type Server struct {
 	closed    atomic.Bool
 	closeOnce sync.Once
 
+	// Request draining for graceful shutdown
+	draining atomic.Bool
+
 	// Statistics
 	stats Stats
 
@@ -240,31 +243,56 @@ func (s *Server) handleConnection(netConn net.Conn) {
 
 // Close gracefully shuts down the server.
 func (s *Server) Close() error {
+	return s.GracefulClose(context.Background())
+}
+
+// GracefulClose shuts down the server gracefully, waiting for in-flight requests.
+// The context can be used to set a timeout for the graceful shutdown.
+func (s *Server) GracefulClose(ctx context.Context) error {
 	var err error
 
 	s.closeOnce.Do(func() {
+		// Mark as draining first (stop accepting new requests in handlers)
+		s.draining.Store(true)
+
+		// Mark as closed
 		s.closed.Store(true)
 
 		// Cancel context to signal all goroutines
 		s.cancel()
 
-		// Close listener
+		// Close listener to stop accepting new connections
 		if s.listener != nil {
 			err = s.listener.Close()
 		}
 
-		// Close all connections
-		s.connMu.Lock()
-		for conn := range s.connections {
-			_ = conn.Close()
-		}
-		s.connMu.Unlock()
+		// Wait for connections to drain with timeout
+		drainDone := make(chan struct{})
+		go func() {
+			s.wg.Wait()
+			close(drainDone)
+		}()
 
-		// Wait for all goroutines
-		s.wg.Wait()
+		select {
+		case <-drainDone:
+			// All connections finished gracefully
+		case <-ctx.Done():
+			// Timeout - force close remaining connections
+			s.connMu.Lock()
+			for conn := range s.connections {
+				_ = conn.Close()
+			}
+			s.connMu.Unlock()
+			s.wg.Wait()
+		}
 	})
 
 	return err
+}
+
+// IsDraining returns true if the server is draining connections.
+func (s *Server) IsDraining() bool {
+	return s.draining.Load()
 }
 
 // Stats returns server statistics. Returns a pointer to avoid

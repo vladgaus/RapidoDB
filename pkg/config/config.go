@@ -51,6 +51,9 @@ type Config struct {
 
 	// Health check configuration
 	Health HealthConfig `json:"health"`
+
+	// Shutdown configuration
+	Shutdown ShutdownConfig `json:"shutdown"`
 }
 
 // MemTableConfig holds MemTable-specific configuration.
@@ -258,6 +261,18 @@ type HealthConfig struct {
 	MemoryMaxHeapMB int64 `json:"memory_max_heap_mb"`
 }
 
+// ShutdownConfig holds graceful shutdown settings.
+type ShutdownConfig struct {
+	// Timeout is the maximum time to wait for graceful shutdown.
+	// After this, forced shutdown occurs.
+	// Default: 30 seconds
+	Timeout time.Duration `json:"timeout"`
+
+	// DrainTimeout is the time to wait for in-flight requests to complete.
+	// Default: 10 seconds
+	DrainTimeout time.Duration `json:"drain_timeout"`
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -320,6 +335,10 @@ func DefaultConfig() *Config {
 			DiskWarningPercent:  80.0,
 			DiskCriticalPercent: 95.0,
 			MemoryMaxHeapMB:     0, // No limit
+		},
+		Shutdown: ShutdownConfig{
+			Timeout:      30 * time.Second,
+			DrainTimeout: 10 * time.Second,
 		},
 	}
 }
