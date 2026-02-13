@@ -1,8 +1,10 @@
 package lsm
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/vladgaus/RapidoDB/pkg/compaction"
 	"github.com/vladgaus/RapidoDB/pkg/compaction/fifo"
@@ -284,12 +286,29 @@ func createStrategy(opts Options) compaction.Strategy {
 
 // Close closes the engine gracefully.
 func (e *Engine) Close() error {
+	// Use a 30 second default timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return e.GracefulClose(ctx)
+}
+
+// GracefulClose shuts down the engine gracefully, ensuring all data is persisted.
+// The context can be used to set a timeout for the graceful shutdown.
+//
+// The shutdown process:
+//  1. Stop accepting new writes (mark as closed)
+//  2. Stop compactor and background workers
+//  3. Flush any remaining immutable MemTables
+//  4. Sync WAL and close all files
+func (e *Engine) GracefulClose(ctx context.Context) error {
 	// Mark as closed atomically
 	if !e.closed.CompareAndSwap(false, true) {
 		return nil // Already closed
 	}
 
-	// Stop compactor first
+	var firstErr error
+
+	// Stop compactor first (waits for current compaction to finish)
 	if e.compactor != nil {
 		e.compactor.Stop()
 	}
@@ -297,18 +316,50 @@ func (e *Engine) Close() error {
 	// Signal background workers to stop
 	close(e.closeChan)
 
-	// Wait for background workers
+	// Wait for background workers (this will drain the flush channel)
 	e.closeWg.Wait()
+
+	// Now handle any remaining data that wasn't flushed
+	e.mu.Lock()
+
+	// If there's data in the active MemTable, rotate it
+	if e.memTable != nil && !e.memTable.IsEmpty() {
+		// Mark as immutable and add to list
+		e.memTable.MarkImmutable()
+		e.immutableMemTables = append([]*memtable.MemTable{e.memTable}, e.immutableMemTables...)
+	}
+
+	// Flush any remaining immutable MemTables synchronously
+	for len(e.immutableMemTables) > 0 {
+		// Check context — if timed out, stop flushing; data is safe in WAL.
+		if ctx.Err() != nil {
+			break
+		}
+
+		imm := e.immutableMemTables[len(e.immutableMemTables)-1]
+		e.mu.Unlock()
+
+		// Flush synchronously
+		e.doFlush(&flushTask{
+			mem:       imm,
+			walFileID: imm.ID(),
+		})
+
+		e.mu.Lock()
+	}
+
+	e.mu.Unlock()
+
+	// Sync WAL before closing
+	if e.walManager != nil {
+		if err := e.walManager.Sync(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
 
 	// Acquire write lock for final cleanup
 	e.mu.Lock()
 	defer e.mu.Unlock()
-
-	// Flush remaining data if any
-	// Note: In production, we might want to flush all MemTables
-	// For now, we just close the WAL which ensures durability
-
-	var firstErr error
 
 	// Close WAL
 	if e.walManager != nil {

@@ -251,6 +251,9 @@ RapidoDB/
 │   │   ├── server.go        # Server core
 │   │   ├── connection.go    # Connection handler
 │   │   └── protocol.go      # Memcached protocol
+│   ├── shutdown/            # Graceful shutdown
+│   │   ├── shutdown.go      # Shutdown coordinator
+│   │   └── drainer.go       # Request drainer
 │   ├── sstable/             # SSTable format
 │   │   ├── format.go        # File format
 │   │   ├── writer.go        # SSTable writer
@@ -299,6 +302,16 @@ RapidoDB/
 | 13 | Iterators | ✅ | Range scans, prefix scans |
 | 14 | TCP Server | ✅ | Memcached protocol |
 | 15 | Benchmarks | ✅ | Performance testing |
+| 16 | Health Checks | ✅ | Kubernetes-native probes |
+| 17 | Graceful Shutdown | ✅ | Signal handling, drain, flush |
+| 18 | Rate Limiting | 🔜 | Token bucket, per-IP limits |
+| 19 | Prometheus Metrics | 🔜 | Observability |
+| 20 | Structured Logging | 🔜 | slog-based logging |
+| 21 | Distributed Tracing | 🔜 | Request ID propagation |
+| 22 | Admin API | 🔜 | Compaction triggers, stats |
+| 23 | Backup/Restore | 🔜 | Hot backups |
+| 24 | Import/Export | 🔜 | JSON/CSV support |
+| 25 | CLI Tool | 🔜 | Interactive management |
 
 ## 🔌 Memcached Protocol
 
@@ -490,6 +503,88 @@ spec:
     "memory_max_heap_mb": 0
   }
 }
+```
+
+## 🛑 Graceful Shutdown
+
+RapidoDB supports graceful shutdown to ensure zero data loss when stopping the server.
+
+### Signal Handling
+
+```bash
+# Send SIGTERM (graceful shutdown)
+kill -TERM <pid>
+
+# Send SIGINT (Ctrl+C in terminal)
+kill -INT <pid>
+
+# Or simply press Ctrl+C when running in foreground
+```
+
+### Shutdown Sequence
+
+When a shutdown signal is received, RapidoDB executes the following steps in order:
+
+1. **Mark as not ready** — Health `/health/ready` returns 503, Kubernetes stops routing traffic
+2. **Close health server** — Stop accepting health check requests
+3. **Drain connections** — Wait for in-flight requests to complete (configurable timeout)
+4. **Flush MemTable** — Write any unflushed data to SSTables
+5. **Sync WAL** — Ensure all writes are persisted to disk
+6. **Stop compactor** — Wait for any running compaction to complete
+7. **Close files** — Clean up all open file handles
+
+### Shutdown Configuration
+
+```json
+{
+  "shutdown": {
+    "timeout": "30s",
+    "drain_timeout": "10s"
+  }
+}
+```
+
+| Setting | Default | Description |
+|:--------|:--------|:------------|
+| `timeout` | 30s | Maximum time for entire shutdown process |
+| `drain_timeout` | 10s | Time to wait for in-flight requests to complete |
+
+### Example Output
+
+```
+^C
+Received signal: interrupt
+Starting graceful shutdown...
+[shutdown] Initiating graceful shutdown: received signal: interrupt
+[shutdown] Running shutdown hook: mark-not-ready
+  → Marked as not ready
+[shutdown] Running shutdown hook: health-server
+  → Health server closed
+[shutdown] Running shutdown hook: tcp-server
+  → Draining 3 active connections...
+  → TCP server closed
+[shutdown] Running shutdown hook: storage-engine
+  → Flushing MemTable and syncing WAL...
+  → Storage engine closed
+[shutdown] Shutdown complete in 245ms
+
+Shutdown completed successfully in 245ms
+Goodbye!
+```
+
+### Kubernetes Graceful Shutdown
+
+For Kubernetes deployments, configure the `terminationGracePeriodSeconds` to match your shutdown timeout:
+
+```yaml
+spec:
+  terminationGracePeriodSeconds: 35  # timeout + buffer
+  containers:
+  - name: rapidodb
+    lifecycle:
+      preStop:
+        exec:
+          command: ["sleep", "5"]  # Allow time for endpoint removal
 ```
 
 ## 📊 Benchmarks

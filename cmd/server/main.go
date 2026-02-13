@@ -3,16 +3,19 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/vladgaus/RapidoDB/pkg/config"
 	"github.com/vladgaus/RapidoDB/pkg/health"
 	"github.com/vladgaus/RapidoDB/pkg/lsm"
 	"github.com/vladgaus/RapidoDB/pkg/server"
+	"github.com/vladgaus/RapidoDB/pkg/shutdown"
 )
 
 // Build-time variables (set by ldflags)
@@ -135,8 +138,9 @@ func main() {
 
 	// Setup health checks
 	var healthServer *health.HTTPServer
+	var healthChecker *health.HealthChecker
 	if cfg.Health.Enabled {
-		healthChecker := setupHealthChecks(cfg, engine, srv)
+		healthChecker = setupHealthChecks(cfg, engine, srv)
 
 		healthOpts := health.DefaultHTTPServerOptions()
 		healthOpts.Host = cfg.Health.Host
@@ -160,28 +164,96 @@ func main() {
 		healthChecker.SetReady(true)
 	}
 
-	fmt.Println("\nReady to accept connections. Press Ctrl+C to stop.")
+	// Setup graceful shutdown coordinator
+	shutdownCoordinator := shutdown.NewCoordinator(shutdown.Options{
+		Timeout:      cfg.Shutdown.Timeout,
+		DrainTimeout: cfg.Shutdown.DrainTimeout,
+	})
+
+	// Register shutdown hooks in order of execution
+
+	// 1. Mark as not ready (stop health readiness probe)
+	if healthChecker != nil {
+		shutdownCoordinator.RegisterHook("mark-not-ready", func(ctx context.Context) error {
+			healthChecker.SetReady(false)
+			fmt.Println("  → Marked as not ready")
+			return nil
+		}, shutdown.PriorityFirst)
+	}
+
+	// 2. Close health server (stop accepting health requests)
+	if healthServer != nil {
+		shutdownCoordinator.RegisterHook("health-server", func(ctx context.Context) error {
+			err := healthServer.Close()
+			if err != nil {
+				fmt.Printf("  → Health server closed with error: %v\n", err)
+			} else {
+				fmt.Println("  → Health server closed")
+			}
+			return err
+		}, shutdown.PriorityEarly)
+	}
+
+	// 3. Drain TCP connections (finish in-flight requests)
+	shutdownCoordinator.RegisterHook("tcp-server", func(ctx context.Context) error {
+		fmt.Printf("  → Draining %d active connections...\n", srv.ActiveConnections())
+
+		// Create drain context with timeout
+		drainCtx, cancel := context.WithTimeout(ctx, cfg.Shutdown.DrainTimeout)
+		defer cancel()
+
+		err := srv.GracefulClose(drainCtx)
+		if err != nil {
+			fmt.Printf("  → TCP server closed with error: %v\n", err)
+		} else {
+			fmt.Println("  → TCP server closed")
+		}
+		return err
+	}, shutdown.PriorityNormal)
+
+	// 4. Flush and close storage engine
+	shutdownCoordinator.RegisterHook("storage-engine", func(ctx context.Context) error {
+		fmt.Println("  → Flushing MemTable and syncing WAL...")
+
+		err := engine.GracefulClose(ctx)
+		if err != nil {
+			fmt.Printf("  → Storage engine closed with error: %v\n", err)
+		} else {
+			fmt.Println("  → Storage engine closed")
+		}
+		return err
+	}, shutdown.PriorityLast)
+
+	fmt.Printf("\nGraceful shutdown: timeout=%v, drain=%v\n",
+		cfg.Shutdown.Timeout, cfg.Shutdown.DrainTimeout)
+	fmt.Println("Ready to accept connections. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	sig := <-sigChan
 
-	fmt.Println("\nShutting down...")
+	fmt.Printf("\nReceived signal: %v\n", sig)
+	fmt.Println("Starting graceful shutdown...")
+	startTime := time.Now()
 
-	// Graceful shutdown
-	if healthServer != nil {
-		if err := healthServer.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error closing health server: %v\n", err)
+	// Trigger graceful shutdown
+	shutdownCoordinator.Shutdown(fmt.Sprintf("received signal: %v", sig))
+
+	// Wait for shutdown to complete
+	<-shutdownCoordinator.Done()
+
+	// Report shutdown summary
+	elapsed := time.Since(startTime)
+	errors := shutdownCoordinator.Errors()
+
+	if len(errors) > 0 {
+		fmt.Printf("\nShutdown completed with %d errors in %v:\n", len(errors), elapsed.Round(time.Millisecond))
+		for _, err := range errors {
+			fmt.Printf("  - %v\n", err)
 		}
-	}
-
-	if err := srv.Close(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error closing server: %v\n", err)
-	}
-
-	if err := engine.Close(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error closing engine: %v\n", err)
+	} else {
+		fmt.Printf("\nShutdown completed successfully in %v\n", elapsed.Round(time.Millisecond))
 	}
 
 	fmt.Println("Goodbye!")
