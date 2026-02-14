@@ -154,7 +154,9 @@ func TestTokenBucket_SetBurst(t *testing.T) {
 }
 
 func TestTokenBucket_Concurrent(t *testing.T) {
-	tb := NewTokenBucket(1000, 100)
+	// Use a near-zero rate so that token refill during the test is negligible.
+	// Burst of 100 means the bucket starts with exactly 100 tokens.
+	tb := NewTokenBucket(0.001, 100)
 
 	var wg sync.WaitGroup
 	allowed := make(chan bool, 200)
@@ -179,7 +181,7 @@ func TestTokenBucket_Concurrent(t *testing.T) {
 		}
 	}
 
-	// Should allow exactly 100 (burst size)
+	// Should allow exactly 100 (burst size), no more.
 	if count != 100 {
 		t.Errorf("Expected 100 allowed, got %d", count)
 	}
