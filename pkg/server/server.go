@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/vladgaus/RapidoDB/pkg/lsm"
+	"github.com/vladgaus/RapidoDB/pkg/ratelimit"
 )
 
 // Server is a TCP server that handles Memcached protocol requests.
@@ -53,6 +54,10 @@ type Server struct {
 
 	// Request draining for graceful shutdown
 	draining atomic.Bool
+
+	// Rate limiting
+	globalLimiter *ratelimit.GlobalLimiter
+	clientLimiter *ratelimit.PerClientLimiter
 
 	// Statistics
 	stats Stats
@@ -92,6 +97,39 @@ type Options struct {
 
 	// Version string to report.
 	Version string
+
+	// RateLimit configures rate limiting.
+	RateLimit RateLimitOptions
+}
+
+// RateLimitOptions configures rate limiting.
+type RateLimitOptions struct {
+	// Enabled enables rate limiting.
+	Enabled bool
+
+	// GlobalEnabled enables global (server-wide) rate limiting.
+	GlobalEnabled bool
+
+	// GlobalRate is the global requests per second limit.
+	GlobalRate float64
+
+	// GlobalBurst is the global burst size.
+	GlobalBurst int
+
+	// PerClientEnabled enables per-client rate limiting.
+	PerClientEnabled bool
+
+	// PerClientRate is the per-client requests per second limit.
+	PerClientRate float64
+
+	// PerClientBurst is the per-client burst size.
+	PerClientBurst int
+
+	// Algorithm is the rate limiting algorithm ("token_bucket" or "sliding_window").
+	Algorithm string
+
+	// MaxIdleTime is how long a client can be idle before cleanup.
+	MaxIdleTime time.Duration
 }
 
 // DefaultOptions returns sensible default options.
@@ -106,6 +144,17 @@ func DefaultOptions() Options {
 		MaxKeySize:     250,
 		MaxValueSize:   1024 * 1024, // 1MB
 		Version:        "RapidoDB/1.0.0",
+		RateLimit: RateLimitOptions{
+			Enabled:          true,
+			GlobalEnabled:    true,
+			GlobalRate:       10000,
+			GlobalBurst:      10000,
+			PerClientEnabled: true,
+			PerClientRate:    100,
+			PerClientBurst:   100,
+			Algorithm:        "token_bucket",
+			MaxIdleTime:      5 * time.Minute,
+		},
 	}
 }
 
@@ -130,6 +179,10 @@ type Stats struct {
 	BytesRead    atomic.Uint64
 	BytesWritten atomic.Uint64
 
+	// Rate limit stats
+	RateLimitedGlobal atomic.Uint64
+	RateLimitedClient atomic.Uint64
+
 	// Timing
 	StartTime time.Time
 }
@@ -147,6 +200,34 @@ func New(engine *lsm.Engine, opts Options) *Server {
 	}
 
 	s.stats.StartTime = time.Now()
+
+	// Initialize rate limiters
+	if opts.RateLimit.Enabled {
+		// Determine algorithm
+		algo := ratelimit.AlgorithmTokenBucket
+		if opts.RateLimit.Algorithm == "sliding_window" {
+			algo = ratelimit.AlgorithmSlidingWindow
+		}
+
+		// Global limiter
+		if opts.RateLimit.GlobalEnabled {
+			s.globalLimiter = ratelimit.NewGlobalLimiter(ratelimit.Config{
+				Algorithm: algo,
+				Rate:      opts.RateLimit.GlobalRate,
+				Burst:     opts.RateLimit.GlobalBurst,
+			})
+		}
+
+		// Per-client limiter
+		if opts.RateLimit.PerClientEnabled {
+			s.clientLimiter = ratelimit.NewPerClientLimiter(ratelimit.Config{
+				Algorithm:   algo,
+				Rate:        opts.RateLimit.PerClientRate,
+				Burst:       opts.RateLimit.PerClientBurst,
+				MaxIdleTime: opts.RateLimit.MaxIdleTime,
+			})
+		}
+	}
 
 	return s
 }
@@ -285,6 +366,11 @@ func (s *Server) GracefulClose(ctx context.Context) error {
 			s.connMu.Unlock()
 			s.wg.Wait()
 		}
+
+		// Cleanup rate limiters
+		if s.clientLimiter != nil {
+			s.clientLimiter.Close()
+		}
 	})
 
 	return err
@@ -337,4 +423,78 @@ func (s *Server) GetHits() uint64 {
 // Implements health.ServerStatsProvider.
 func (s *Server) GetMisses() uint64 {
 	return s.stats.GetMisses.Load()
+}
+
+// ============================================================================
+// Rate Limiting Interface
+// ============================================================================
+
+// CheckRateLimit checks if a request from the given client IP is allowed.
+// Returns true if allowed, false if rate limited.
+// Also returns a retry-after duration if rate limited.
+func (s *Server) CheckRateLimit(clientIP string) (allowed bool, retryAfter time.Duration) {
+	// If rate limiting is disabled, always allow
+	if !s.opts.RateLimit.Enabled {
+		return true, 0
+	}
+
+	// Check global rate limit first
+	if s.globalLimiter != nil {
+		if !s.globalLimiter.Allow() {
+			s.stats.RateLimitedGlobal.Add(1)
+			result := s.globalLimiter.Check()
+			return false, result.RetryAfter
+		}
+	}
+
+	// Check per-client rate limit
+	if s.clientLimiter != nil {
+		if !s.clientLimiter.Allow(clientIP) {
+			s.stats.RateLimitedClient.Add(1)
+			result := s.clientLimiter.Check(clientIP)
+			return false, result.RetryAfter
+		}
+	}
+
+	return true, 0
+}
+
+// RateLimitStats returns rate limiting statistics.
+func (s *Server) RateLimitStats() RateLimitStats {
+	stats := RateLimitStats{
+		Enabled:       s.opts.RateLimit.Enabled,
+		GlobalLimited: s.stats.RateLimitedGlobal.Load(),
+		ClientLimited: s.stats.RateLimitedClient.Load(),
+	}
+
+	if s.clientLimiter != nil {
+		clientStats := s.clientLimiter.Stats()
+		stats.ActiveClients = clientStats.ActiveClients
+		stats.TotalRequests = clientStats.TotalRequests
+		stats.TotalAllowed = clientStats.TotalAllowed
+		stats.TotalDenied = clientStats.TotalDenied
+	}
+
+	return stats
+}
+
+// RateLimitStats holds rate limiting statistics.
+type RateLimitStats struct {
+	Enabled       bool
+	GlobalLimited uint64
+	ClientLimited uint64
+	ActiveClients int
+	TotalRequests uint64
+	TotalAllowed  uint64
+	TotalDenied   uint64
+}
+
+// GlobalLimiter returns the global rate limiter (for testing/monitoring).
+func (s *Server) GlobalLimiter() *ratelimit.GlobalLimiter {
+	return s.globalLimiter
+}
+
+// ClientLimiter returns the per-client rate limiter (for testing/monitoring).
+func (s *Server) ClientLimiter() *ratelimit.PerClientLimiter {
+	return s.clientLimiter
 }

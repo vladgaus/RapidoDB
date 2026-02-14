@@ -247,6 +247,11 @@ RapidoDB/
 │   │   └── skiplist.go      # SkipList implementation
 │   ├── mvcc/                # MVCC support
 │   │   └── snapshot.go      # Snapshot management
+│   ├── ratelimit/           # Rate limiting
+│   │   ├── ratelimit.go     # Core types & interfaces
+│   │   ├── token_bucket.go  # Token bucket algorithm
+│   │   ├── sliding_window.go # Sliding window algorithm
+│   │   └── client_limiter.go # Per-client rate limiting
 │   ├── server/              # TCP server
 │   │   ├── server.go        # Server core
 │   │   ├── connection.go    # Connection handler
@@ -304,7 +309,7 @@ RapidoDB/
 | 15 | Benchmarks | ✅ | Performance testing |
 | 16 | Health Checks | ✅ | Kubernetes-native probes |
 | 17 | Graceful Shutdown | ✅ | Signal handling, drain, flush |
-| 18 | Rate Limiting | 🔜 | Token bucket, per-IP limits |
+| 18 | Rate Limiting | ✅ | Token bucket, per-client limits |
 | 19 | Prometheus Metrics | 🔜 | Observability |
 | 20 | Structured Logging | 🔜 | slog-based logging |
 | 21 | Distributed Tracing | 🔜 | Request ID propagation |
@@ -585,6 +590,79 @@ spec:
       preStop:
         exec:
           command: ["sleep", "5"]  # Allow time for endpoint removal
+```
+
+## 🚦 Rate Limiting
+
+RapidoDB includes built-in rate limiting to protect against abuse and ensure fair resource usage.
+
+### Features
+
+- **Token Bucket Algorithm** — Smooth rate limiting with burst support
+- **Sliding Window Algorithm** — Precise rate limiting over time windows
+- **Per-Client Limits** — Separate limits for each client IP
+- **Global Limits** — Server-wide throughput protection
+- **Backpressure Signaling** — Retry-after hints for clients
+
+### Configuration
+
+```json
+{
+  "rate_limit": {
+    "enabled": true,
+    "algorithm": "token_bucket",
+    "global": {
+      "enabled": true,
+      "rate": 10000,
+      "burst": 10000
+    },
+    "per_client": {
+      "enabled": true,
+      "rate": 100,
+      "burst": 100,
+      "max_idle_time": "5m"
+    }
+  }
+}
+```
+
+| Setting | Default | Description |
+|:--------|:--------|:------------|
+| `algorithm` | token_bucket | Rate limiting algorithm (token_bucket or sliding_window) |
+| `global.rate` | 10000 | Server-wide requests per second |
+| `global.burst` | 10000 | Maximum burst size for server |
+| `per_client.rate` | 100 | Per-client requests per second |
+| `per_client.burst` | 100 | Maximum burst size per client |
+| `per_client.max_idle_time` | 5m | Cleanup idle client entries after this duration |
+
+### Rate Limit Response
+
+When rate limited, clients receive a `SERVER_ERROR` response with retry-after hint:
+
+```
+SERVER_ERROR RATE_LIMITED retry_after=10ms
+```
+
+### Algorithms
+
+**Token Bucket** (default)
+- Tokens added at constant rate
+- Allows bursts up to bucket capacity
+- Best for smooth traffic with occasional spikes
+
+**Sliding Window**
+- Tracks requests in sliding time windows
+- More precise rate limiting
+- Better for strict rate enforcement
+
+### Programmatic Access
+
+```go
+// Check rate limit status
+stats := server.RateLimitStats()
+fmt.Printf("Active clients: %d\n", stats.ActiveClients)
+fmt.Printf("Global limited: %d\n", stats.GlobalLimited)
+fmt.Printf("Client limited: %d\n", stats.ClientLimited)
 ```
 
 ## 📊 Benchmarks
