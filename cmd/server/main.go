@@ -14,6 +14,7 @@ import (
 	"github.com/vladgaus/RapidoDB/pkg/config"
 	"github.com/vladgaus/RapidoDB/pkg/health"
 	"github.com/vladgaus/RapidoDB/pkg/lsm"
+	"github.com/vladgaus/RapidoDB/pkg/metrics"
 	"github.com/vladgaus/RapidoDB/pkg/server"
 	"github.com/vladgaus/RapidoDB/pkg/shutdown"
 )
@@ -164,6 +165,33 @@ func main() {
 		healthChecker.SetReady(true)
 	}
 
+	// Setup metrics server
+	var metricsServer *metrics.Server
+	var rapidoDBMetrics *metrics.RapiDoDBMetrics
+	if cfg.Metrics.Enabled {
+		rapidoDBMetrics = metrics.NewRapiDoDBMetrics()
+		rapidoDBMetrics.SetVersion(Version)
+
+		metricsServer = metrics.NewServer(metrics.ServerOptions{
+			Host:    cfg.Metrics.Host,
+			Port:    cfg.Metrics.Port,
+			Metrics: rapidoDBMetrics,
+		})
+
+		if err := metricsServer.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to start metrics server: %v\n", err)
+			if healthServer != nil {
+				_ = healthServer.Close()
+			}
+			_ = srv.Close()
+			_ = engine.Close()
+			os.Exit(1)
+		}
+
+		fmt.Printf("Metrics server listening on %s\n", metricsServer.Addr())
+		fmt.Println("  GET /metrics      - Prometheus metrics")
+	}
+
 	// Setup graceful shutdown coordinator
 	shutdownCoordinator := shutdown.NewCoordinator(shutdown.Options{
 		Timeout:      cfg.Shutdown.Timeout,
@@ -189,6 +217,19 @@ func main() {
 				fmt.Printf("  → Health server closed with error: %v\n", err)
 			} else {
 				fmt.Println("  → Health server closed")
+			}
+			return err
+		}, shutdown.PriorityEarly)
+	}
+
+	// 2b. Close metrics server
+	if metricsServer != nil {
+		shutdownCoordinator.RegisterHook("metrics-server", func(ctx context.Context) error {
+			err := metricsServer.Close()
+			if err != nil {
+				fmt.Printf("  → Metrics server closed with error: %v\n", err)
+			} else {
+				fmt.Println("  → Metrics server closed")
 			}
 			return err
 		}, shutdown.PriorityEarly)

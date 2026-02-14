@@ -245,6 +245,12 @@ RapidoDB/
 │   ├── memtable/            # MemTable implementations
 │   │   ├── memtable.go      # MemTable wrapper
 │   │   └── skiplist.go      # SkipList implementation
+│   ├── metrics/             # Prometheus metrics
+│   │   ├── metrics.go       # Registry & core types
+│   │   ├── counter.go       # Counter metric
+│   │   ├── gauge.go         # Gauge metric
+│   │   ├── histogram.go     # Histogram metric
+│   │   └── collector.go     # RapidoDB collector
 │   ├── mvcc/                # MVCC support
 │   │   └── snapshot.go      # Snapshot management
 │   ├── ratelimit/           # Rate limiting
@@ -310,7 +316,7 @@ RapidoDB/
 | 16 | Health Checks | ✅ | Kubernetes-native probes |
 | 17 | Graceful Shutdown | ✅ | Signal handling, drain, flush |
 | 18 | Rate Limiting | ✅ | Token bucket, per-client limits |
-| 19 | Prometheus Metrics | 🔜 | Observability |
+| 19 | Prometheus Metrics | ✅ | GET /metrics endpoint |
 | 20 | Structured Logging | 🔜 | slog-based logging |
 | 21 | Distributed Tracing | 🔜 | Request ID propagation |
 | 22 | Admin API | 🔜 | Compaction triggers, stats |
@@ -663,6 +669,92 @@ stats := server.RateLimitStats()
 fmt.Printf("Active clients: %d\n", stats.ActiveClients)
 fmt.Printf("Global limited: %d\n", stats.GlobalLimited)
 fmt.Printf("Client limited: %d\n", stats.ClientLimited)
+```
+
+## 📈 Prometheus Metrics
+
+RapidoDB exposes metrics in Prometheus text format for monitoring and alerting.
+
+### Endpoint
+
+```bash
+# Start server (metrics server runs on port 9090 by default)
+./build/rapidodb-server --data-dir ./data
+
+# Fetch metrics
+curl http://localhost:9090/metrics
+```
+
+### Available Metrics
+
+| Metric | Type | Description |
+|:-------|:-----|:------------|
+| `rapidodb_writes_total` | counter | Total write operations |
+| `rapidodb_reads_total` | counter | Total read operations |
+| `rapidodb_deletes_total` | counter | Total delete operations |
+| `rapidodb_write_latency_seconds` | histogram | Write latency distribution |
+| `rapidodb_read_latency_seconds` | histogram | Read latency distribution |
+| `rapidodb_memtable_size_bytes` | gauge | Current MemTable size |
+| `rapidodb_sstable_count` | gauge | Number of SSTable files |
+| `rapidodb_wal_size_bytes` | gauge | Current WAL size |
+| `rapidodb_disk_usage_bytes` | gauge | Total disk usage |
+| `rapidodb_compaction_duration_seconds` | histogram | Compaction duration |
+| `rapidodb_bloom_filter_hits_total` | counter | Bloom filter hits |
+| `rapidodb_bloom_filter_misses_total` | counter | Bloom filter misses |
+| `rapidodb_active_connections` | gauge | Current active connections |
+| `rapidodb_connections_total` | counter | Total connections |
+| `rapidodb_rate_limited_total` | counter | Rate limited requests |
+| `rapidodb_goroutines` | gauge | Number of goroutines |
+| `rapidodb_heap_alloc_bytes` | gauge | Heap memory allocated |
+| `rapidodb_info` | gauge | Version information |
+
+### Example Output
+
+```
+# HELP rapidodb_writes_total Total number of write operations
+# TYPE rapidodb_writes_total counter
+rapidodb_writes_total 1542
+
+# HELP rapidodb_read_latency_seconds Read operation latency in seconds
+# TYPE rapidodb_read_latency_seconds histogram
+rapidodb_read_latency_seconds_bucket{le="0.0001"} 892
+rapidodb_read_latency_seconds_bucket{le="0.001"} 1456
+rapidodb_read_latency_seconds_bucket{le="+Inf"} 1542
+rapidodb_read_latency_seconds_sum 0.234
+rapidodb_read_latency_seconds_count 1542
+
+# HELP rapidodb_active_connections Number of active client connections
+# TYPE rapidodb_active_connections gauge
+rapidodb_active_connections 5
+
+# HELP rapidodb_info RapidoDB version information
+# TYPE rapidodb_info gauge
+rapidodb_info{version="0.16.0"} 1
+```
+
+### Configuration
+
+```json
+{
+  "metrics": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 9090
+  }
+}
+```
+
+### Grafana Integration
+
+Import the RapidoDB dashboard or create custom panels:
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: 'rapidodb'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 15s
 ```
 
 ## 📊 Benchmarks

@@ -57,6 +57,9 @@ type Config struct {
 
 	// Rate limiting configuration
 	RateLimit RateLimitConfig `json:"rate_limit"`
+
+	// Metrics configuration
+	Metrics MetricsConfig `json:"metrics"`
 }
 
 // MemTableConfig holds MemTable-specific configuration.
@@ -327,6 +330,21 @@ type RateLimitPerClientConfig struct {
 	MaxIdleTime time.Duration `json:"max_idle_time"`
 }
 
+// MetricsConfig holds Prometheus metrics settings.
+type MetricsConfig struct {
+	// Enabled determines if metrics are exposed.
+	// Default: true
+	Enabled bool `json:"enabled"`
+
+	// Host is the address to bind metrics server to.
+	// Default: "0.0.0.0"
+	Host string `json:"host"`
+
+	// Port is the port for metrics server.
+	// Default: 9090
+	Port int `json:"port"`
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -408,6 +426,11 @@ func DefaultConfig() *Config {
 				Burst:       100,
 				MaxIdleTime: 5 * time.Minute,
 			},
+		},
+		Metrics: MetricsConfig{
+			Enabled: true,
+			Host:    "0.0.0.0",
+			Port:    9090,
 		},
 	}
 }
