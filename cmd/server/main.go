@@ -127,6 +127,18 @@ func main() {
 
 	srv := server.New(engine, serverOpts)
 
+	// Setup metrics early (before server start) so command handlers can use them
+	var metricsServer *metrics.Server
+	var rapidoDBMetrics *metrics.RapiDoDBMetrics
+	if cfg.Metrics.Enabled {
+		rapidoDBMetrics = metrics.NewRapiDoDBMetrics()
+		rapidoDBMetrics.SetVersion(Version)
+		srv.SetMetrics(rapidoDBMetrics)
+
+		// Start background stats collector (updates storage metrics every 5 seconds)
+		rapidoDBMetrics.StartStatsCollector(engine, 5*time.Second)
+	}
+
 	// Start server
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to start server: %v\n", err)
@@ -165,13 +177,8 @@ func main() {
 		healthChecker.SetReady(true)
 	}
 
-	// Setup metrics server
-	var metricsServer *metrics.Server
-	var rapidoDBMetrics *metrics.RapiDoDBMetrics
-	if cfg.Metrics.Enabled {
-		rapidoDBMetrics = metrics.NewRapiDoDBMetrics()
-		rapidoDBMetrics.SetVersion(Version)
-
+	// Start metrics HTTP server
+	if cfg.Metrics.Enabled && rapidoDBMetrics != nil {
 		metricsServer = metrics.NewServer(metrics.ServerOptions{
 			Host:    cfg.Metrics.Host,
 			Port:    cfg.Metrics.Port,
@@ -222,7 +229,16 @@ func main() {
 		}, shutdown.PriorityEarly)
 	}
 
-	// 2b. Close metrics server
+	// 2b. Stop metrics stats collector
+	if rapidoDBMetrics != nil {
+		shutdownCoordinator.RegisterHook("metrics-collector", func(ctx context.Context) error {
+			rapidoDBMetrics.StopStatsCollector()
+			fmt.Println("  → Metrics collector stopped")
+			return nil
+		}, shutdown.PriorityEarly)
+	}
+
+	// 2c. Close metrics server
 	if metricsServer != nil {
 		shutdownCoordinator.RegisterHook("metrics-server", func(ctx context.Context) error {
 			err := metricsServer.Close()

@@ -452,3 +452,48 @@ func (e *Engine) Stats() Stats {
 
 	return stats
 }
+
+// ============================================================================
+// Metrics Interface (implements metrics.EngineStatsProvider)
+// ============================================================================
+
+// GetMemTableSize returns the current MemTable size in bytes.
+func (e *Engine) GetMemTableSize() int64 {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.memTable == nil {
+		return 0
+	}
+	return e.memTable.Size()
+}
+
+// GetSSTableCount returns the total number of SSTables across all levels.
+func (e *Engine) GetSSTableCount() int {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.levels == nil {
+		return 0
+	}
+
+	total := 0
+	// Count files across all levels (0-6 for typical LSM)
+	for level := 0; level < 7; level++ {
+		total += e.levels.NumFiles(level)
+	}
+	return total
+}
+
+// GetCompactionStats returns compaction statistics.
+func (e *Engine) GetCompactionStats() (compactions int64, bytesCompacted int64) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.compactor == nil {
+		return 0, 0
+	}
+
+	stats := e.compactor.Stats()
+	return stats.CompactionsRun, stats.BytesWritten
+}
