@@ -167,16 +167,23 @@ func (c *Connection) handleCommand(cmd *Command) {
 
 // handleGet handles get/gets commands.
 func (c *Connection) handleGet(cmd *Command, withCAS bool) {
+	start := time.Now()
 	c.server.stats.CmdGet.Add(1)
 
 	for _, key := range cmd.Keys {
 		value, err := c.server.engine.Get([]byte(key))
 		if err != nil || value == nil {
 			c.server.stats.GetMisses.Add(1)
+			if c.server.metrics != nil {
+				c.server.metrics.CacheMisses.Inc()
+			}
 			continue
 		}
 
 		c.server.stats.GetHits.Add(1)
+		if c.server.metrics != nil {
+			c.server.metrics.CacheHits.Inc()
+		}
 
 		// Decode stored format: flags (4 bytes) + data
 		if len(value) < 4 {
@@ -196,10 +203,17 @@ func (c *Connection) handleGet(cmd *Command, withCAS bool) {
 	}
 
 	c.resp.WriteEnd()
+
+	// Update metrics
+	if c.server.metrics != nil {
+		c.server.metrics.ReadsTotal.Add(uint64(len(cmd.Keys)))
+		c.server.metrics.ReadLatency.ObserveDuration(start)
+	}
 }
 
 // handleSet handles set command.
 func (c *Connection) handleSet(cmd *Command) {
+	start := time.Now()
 	c.server.stats.CmdSet.Add(1)
 
 	// Encode value with flags: flags (4 bytes) + data
@@ -214,10 +228,17 @@ func (c *Connection) handleSet(cmd *Command) {
 	}
 
 	c.resp.WriteStored()
+
+	// Update metrics
+	if c.server.metrics != nil {
+		c.server.metrics.WritesTotal.Inc()
+		c.server.metrics.WriteLatency.ObserveDuration(start)
+	}
 }
 
 // handleAdd handles add command (store only if not exists).
 func (c *Connection) handleAdd(cmd *Command) {
+	start := time.Now()
 	c.server.stats.CmdSet.Add(1)
 
 	key := []byte(cmd.Keys[0])
@@ -241,10 +262,17 @@ func (c *Connection) handleAdd(cmd *Command) {
 	}
 
 	c.resp.WriteStored()
+
+	// Update metrics
+	if c.server.metrics != nil {
+		c.server.metrics.WritesTotal.Inc()
+		c.server.metrics.WriteLatency.ObserveDuration(start)
+	}
 }
 
 // handleReplace handles replace command (store only if exists).
 func (c *Connection) handleReplace(cmd *Command) {
+	start := time.Now()
 	c.server.stats.CmdSet.Add(1)
 
 	key := []byte(cmd.Keys[0])
@@ -268,10 +296,17 @@ func (c *Connection) handleReplace(cmd *Command) {
 	}
 
 	c.resp.WriteStored()
+
+	// Update metrics
+	if c.server.metrics != nil {
+		c.server.metrics.WritesTotal.Inc()
+		c.server.metrics.WriteLatency.ObserveDuration(start)
+	}
 }
 
 // handleDelete handles delete command.
 func (c *Connection) handleDelete(cmd *Command) {
+	start := time.Now()
 	c.server.stats.CmdDelete.Add(1)
 
 	key := []byte(cmd.Keys[0])
@@ -290,10 +325,17 @@ func (c *Connection) handleDelete(cmd *Command) {
 	}
 
 	c.resp.WriteDeleted()
+
+	// Update metrics
+	if c.server.metrics != nil {
+		c.server.metrics.DeletesTotal.Inc()
+		c.server.metrics.DeleteLatency.ObserveDuration(start)
+	}
 }
 
 // handleIncr handles incr/decr commands.
 func (c *Connection) handleIncr(cmd *Command, increment bool) {
+	start := time.Now()
 	c.server.stats.CmdOther.Add(1)
 
 	key := []byte(cmd.Keys[0])
@@ -347,6 +389,12 @@ func (c *Connection) handleIncr(cmd *Command, increment bool) {
 	}
 
 	c.resp.WriteNumber(newVal)
+
+	// Update metrics (incr/decr is a read-modify-write)
+	if c.server.metrics != nil {
+		c.server.metrics.WritesTotal.Inc()
+		c.server.metrics.WriteLatency.ObserveDuration(start)
+	}
 }
 
 // handleFlushAll handles flush_all command.

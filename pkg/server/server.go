@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/vladgaus/RapidoDB/pkg/lsm"
+	"github.com/vladgaus/RapidoDB/pkg/metrics"
 	"github.com/vladgaus/RapidoDB/pkg/ratelimit"
 )
 
@@ -58,6 +59,9 @@ type Server struct {
 	// Rate limiting
 	globalLimiter *ratelimit.GlobalLimiter
 	clientLimiter *ratelimit.PerClientLimiter
+
+	// Prometheus metrics
+	metrics *metrics.RapiDoDBMetrics
 
 	// Statistics
 	stats Stats
@@ -232,6 +236,17 @@ func New(engine *lsm.Engine, opts Options) *Server {
 	return s
 }
 
+// SetMetrics sets the Prometheus metrics collector.
+// Should be called before Start().
+func (s *Server) SetMetrics(m *metrics.RapiDoDBMetrics) {
+	s.metrics = m
+}
+
+// Metrics returns the Prometheus metrics collector.
+func (s *Server) Metrics() *metrics.RapiDoDBMetrics {
+	return s.metrics
+}
+
 // Start begins listening for connections.
 func (s *Server) Start() error {
 	if s.started.Swap(true) {
@@ -298,9 +313,18 @@ func (s *Server) handleConnection(netConn net.Conn) {
 	s.stats.ActiveConns.Add(1)
 	s.connCount.Add(1)
 
+	// Update metrics
+	if s.metrics != nil {
+		s.metrics.TotalConnections.Inc()
+		s.metrics.ActiveConnections.Inc()
+	}
+
 	defer func() {
 		s.stats.ActiveConns.Add(-1)
 		s.connCount.Add(-1)
+		if s.metrics != nil {
+			s.metrics.ActiveConnections.Dec()
+		}
 	}()
 
 	// Create connection handler
@@ -442,6 +466,9 @@ func (s *Server) CheckRateLimit(clientIP string) (allowed bool, retryAfter time.
 	if s.globalLimiter != nil {
 		if !s.globalLimiter.Allow() {
 			s.stats.RateLimitedGlobal.Add(1)
+			if s.metrics != nil {
+				s.metrics.RateLimitedTotal.Inc()
+			}
 			result := s.globalLimiter.Check()
 			return false, result.RetryAfter
 		}
@@ -451,6 +478,9 @@ func (s *Server) CheckRateLimit(clientIP string) (allowed bool, retryAfter time.
 	if s.clientLimiter != nil {
 		if !s.clientLimiter.Allow(clientIP) {
 			s.stats.RateLimitedClient.Add(1)
+			if s.metrics != nil {
+				s.metrics.RateLimitedTotal.Inc()
+			}
 			result := s.clientLimiter.Check(clientIP)
 			return false, result.RetryAfter
 		}
