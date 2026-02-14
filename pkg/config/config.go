@@ -54,6 +54,9 @@ type Config struct {
 
 	// Shutdown configuration
 	Shutdown ShutdownConfig `json:"shutdown"`
+
+	// Rate limiting configuration
+	RateLimit RateLimitConfig `json:"rate_limit"`
 }
 
 // MemTableConfig holds MemTable-specific configuration.
@@ -273,6 +276,57 @@ type ShutdownConfig struct {
 	DrainTimeout time.Duration `json:"drain_timeout"`
 }
 
+// RateLimitConfig holds rate limiting settings.
+type RateLimitConfig struct {
+	// Enabled determines if rate limiting is active.
+	// Default: true
+	Enabled bool `json:"enabled"`
+
+	// Algorithm is the rate limiting algorithm: "token_bucket" or "sliding_window".
+	// Default: "token_bucket"
+	Algorithm string `json:"algorithm"`
+
+	// Global settings for overall server throughput
+	Global RateLimitGlobalConfig `json:"global"`
+
+	// PerClient settings for per-IP/client limiting
+	PerClient RateLimitPerClientConfig `json:"per_client"`
+}
+
+// RateLimitGlobalConfig holds global rate limit settings.
+type RateLimitGlobalConfig struct {
+	// Enabled enables global rate limiting.
+	// Default: true
+	Enabled bool `json:"enabled"`
+
+	// Rate is the maximum requests per second for the entire server.
+	// Default: 10000
+	Rate float64 `json:"rate"`
+
+	// Burst is the maximum burst size.
+	// Default: 10000
+	Burst int `json:"burst"`
+}
+
+// RateLimitPerClientConfig holds per-client rate limit settings.
+type RateLimitPerClientConfig struct {
+	// Enabled enables per-client rate limiting.
+	// Default: true
+	Enabled bool `json:"enabled"`
+
+	// Rate is the maximum requests per second per client.
+	// Default: 100
+	Rate float64 `json:"rate"`
+
+	// Burst is the maximum burst size per client.
+	// Default: 100
+	Burst int `json:"burst"`
+
+	// MaxIdleTime is how long a client can be idle before cleanup.
+	// Default: 5 minutes
+	MaxIdleTime time.Duration `json:"max_idle_time"`
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -339,6 +393,21 @@ func DefaultConfig() *Config {
 		Shutdown: ShutdownConfig{
 			Timeout:      30 * time.Second,
 			DrainTimeout: 10 * time.Second,
+		},
+		RateLimit: RateLimitConfig{
+			Enabled:   true,
+			Algorithm: "token_bucket",
+			Global: RateLimitGlobalConfig{
+				Enabled: true,
+				Rate:    10000,
+				Burst:   10000,
+			},
+			PerClient: RateLimitPerClientConfig{
+				Enabled:     true,
+				Rate:        100,
+				Burst:       100,
+				MaxIdleTime: 5 * time.Minute,
+			},
 		},
 	}
 }

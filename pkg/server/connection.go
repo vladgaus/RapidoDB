@@ -35,6 +35,9 @@ func NewConnection(conn net.Conn, server *Server) *Connection {
 func (c *Connection) Serve(ctx context.Context) {
 	defer func() { _ = c.Close() }()
 
+	// Get client IP for rate limiting
+	clientIP := c.clientIP()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -76,9 +79,34 @@ func (c *Connection) Serve(ctx context.Context) {
 			continue
 		}
 
+		// Check rate limit before processing command
+		allowed, retryAfter := c.server.CheckRateLimit(clientIP)
+		if !allowed {
+			c.resp.Reset()
+			// Use SERVER_ERROR with retry-after hint for backpressure signaling
+			c.resp.WriteServerError("RATE_LIMITED retry_after=" + retryAfter.String())
+			_ = c.write(c.resp.Bytes())
+			continue
+		}
+
 		// Handle command
 		c.handleCommand(cmd)
 	}
+}
+
+// clientIP extracts the client IP address from the connection.
+func (c *Connection) clientIP() string {
+	addr := c.conn.RemoteAddr()
+	if addr == nil {
+		return "unknown"
+	}
+
+	// Extract IP from host:port
+	host, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return addr.String()
+	}
+	return host
 }
 
 // isConnectionClosed checks if the error indicates a closed connection.

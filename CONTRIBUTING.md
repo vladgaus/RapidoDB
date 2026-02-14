@@ -184,6 +184,14 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 - `encoding`: Binary encoding
 - `health`: Health checks
 - `graceful`: Graceful Shutdown
+- `limiting`: Rate Limiting
+- `metrics`: Prometheus Metrics
+- `logging`: Structured Logging
+- `tracing`: Distributed Tracing
+- `admin`: Admin API
+- `backup`: Backup/Restore
+- `import`: Import/Export 
+- `cLI`: CLI Tool
 
 ### Examples
 
