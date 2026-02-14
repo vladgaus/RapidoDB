@@ -385,33 +385,6 @@ func (e *Engine) GracefulClose(ctx context.Context) error {
 	return firstErr
 }
 
-// rotateMemTableLocked makes the current MemTable immutable and creates a new one.
-// Caller must hold e.mu.
-func (e *Engine) rotateMemTableLocked() error {
-	if e.memTable == nil || e.memTable.IsEmpty() {
-		return nil
-	}
-
-	// Mark current MemTable as immutable
-	e.memTable.MarkImmutable()
-
-	// Add to immutable list (newest first)
-	e.immutableMemTables = append([]*memtable.MemTable{e.memTable}, e.immutableMemTables...)
-
-	// Open new WAL
-	if err := e.walManager.Open(0); err != nil {
-		return err
-	}
-
-	// Create new MemTable
-	e.memTable = memtable.NewMemTable(e.walManager.CurrentFileNum(), e.opts.MemTableSize)
-
-	// Schedule flush
-	e.maybeScheduleFlush()
-
-	return nil
-}
-
 // flushWorker runs in the background and flushes immutable MemTables.
 func (e *Engine) flushWorker() {
 	defer e.closeWg.Done()
