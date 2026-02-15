@@ -60,6 +60,9 @@ type Config struct {
 
 	// Metrics configuration
 	Metrics MetricsConfig `json:"metrics"`
+
+	// Logging configuration
+	Logging LoggingConfig `json:"logging"`
 }
 
 // MemTableConfig holds MemTable-specific configuration.
@@ -345,6 +348,51 @@ type MetricsConfig struct {
 	Port int `json:"port"`
 }
 
+// LoggingConfig holds structured logging settings.
+type LoggingConfig struct {
+	// Level is the minimum log level.
+	// Values: "debug", "info", "warn", "error"
+	// Default: "info"
+	Level string `json:"level"`
+
+	// Format is the log output format.
+	// Values: "json", "text"
+	// Default: "json"
+	Format string `json:"format"`
+
+	// Output specifies where logs are written.
+	// Values: "stdout", "stderr", or a file path
+	// Default: "stdout"
+	Output string `json:"output"`
+
+	// File holds file output settings (when Output is a file path).
+	File LogFileConfig `json:"file"`
+
+	// AddSource includes source file and line in logs.
+	// Default: false
+	AddSource bool `json:"add_source"`
+}
+
+// LogFileConfig holds log file rotation settings.
+type LogFileConfig struct {
+	// MaxSize is the maximum size in MB before rotation.
+	// Default: 100
+	MaxSize int `json:"max_size"`
+
+	// MaxBackups is the maximum number of old log files to keep.
+	// Default: 5
+	MaxBackups int `json:"max_backups"`
+
+	// MaxAge is the maximum age in days for old log files.
+	// 0 means no age-based deletion.
+	// Default: 0
+	MaxAge int `json:"max_age"`
+
+	// Compress determines if rotated files are gzip compressed.
+	// Default: false
+	Compress bool `json:"compress"`
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -431,6 +479,18 @@ func DefaultConfig() *Config {
 			Enabled: true,
 			Host:    "0.0.0.0",
 			Port:    9090,
+		},
+		Logging: LoggingConfig{
+			Level:     "info",
+			Format:    "json",
+			Output:    "stdout",
+			AddSource: false,
+			File: LogFileConfig{
+				MaxSize:    100,
+				MaxBackups: 5,
+				MaxAge:     0,
+				Compress:   false,
+			},
 		},
 	}
 }

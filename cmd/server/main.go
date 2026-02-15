@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/vladgaus/RapidoDB/pkg/config"
 	"github.com/vladgaus/RapidoDB/pkg/health"
+	"github.com/vladgaus/RapidoDB/pkg/logging"
 	"github.com/vladgaus/RapidoDB/pkg/lsm"
 	"github.com/vladgaus/RapidoDB/pkg/metrics"
 	"github.com/vladgaus/RapidoDB/pkg/server"
@@ -82,11 +84,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Setup logging
+	logger, logCloser := setupLogging(cfg)
+	defer logCloser()
+
+	logger.Info("starting RapidoDB",
+		"version", Version,
+		"commit", Commit,
+		"build_time", BuildTime,
+	)
+
 	// Print startup banner
 	printBanner()
 
 	// Initialize storage engine
 	fmt.Printf("Opening database at: %s\n", cfg.DataDir)
+	logger.Info("opening database", "path", cfg.DataDir)
 
 	engineOpts := lsm.DefaultOptions(cfg.DataDir)
 	engineOpts.MemTableSize = cfg.MemTable.MaxSize
@@ -113,6 +126,7 @@ func main() {
 	engine, err := lsm.Open(engineOpts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
+		logger.Error("failed to open database", "error", err)
 		os.Exit(1)
 	}
 
@@ -126,6 +140,7 @@ func main() {
 	serverOpts.Version = fmt.Sprintf("RapidoDB/%s", Version)
 
 	srv := server.New(engine, serverOpts)
+	srv.SetLogger(logger)
 
 	// Setup metrics early (before server start) so command handlers can use them
 	var metricsServer *metrics.Server
@@ -142,10 +157,15 @@ func main() {
 	// Start server
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to start server: %v\n", err)
+		logger.Error("failed to start server", "error", err)
 		_ = engine.Close()
 		os.Exit(1)
 	}
 
+	logger.Info("server started",
+		"addr", srv.Addr(),
+		"compaction_strategy", cfg.Compaction.Strategy,
+	)
 	fmt.Printf("Server listening on %s\n", srv.Addr())
 	fmt.Printf("Compaction strategy: %s\n", cfg.Compaction.Strategy)
 
@@ -163,11 +183,13 @@ func main() {
 
 		if err := healthServer.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to start health server: %v\n", err)
+			logger.Error("failed to start health server", "error", err)
 			_ = srv.Close()
 			_ = engine.Close()
 			os.Exit(1)
 		}
 
+		logger.Info("health server started", "addr", healthServer.Addr())
 		fmt.Printf("Health server listening on %s\n", healthServer.Addr())
 		fmt.Println("  GET /health       - Full health status")
 		fmt.Println("  GET /health/live  - Kubernetes liveness probe")
@@ -187,6 +209,7 @@ func main() {
 
 		if err := metricsServer.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to start metrics server: %v\n", err)
+			logger.Error("failed to start metrics server", "error", err)
 			if healthServer != nil {
 				_ = healthServer.Close()
 			}
@@ -195,6 +218,7 @@ func main() {
 			os.Exit(1)
 		}
 
+		logger.Info("metrics server started", "addr", metricsServer.Addr())
 		fmt.Printf("Metrics server listening on %s\n", metricsServer.Addr())
 		fmt.Println("  GET /metrics      - Prometheus metrics")
 	}
@@ -271,16 +295,23 @@ func main() {
 	// 4. Flush and close storage engine
 	shutdownCoordinator.RegisterHook("storage-engine", func(ctx context.Context) error {
 		fmt.Println("  → Flushing MemTable and syncing WAL...")
+		logger.Info("flushing MemTable and syncing WAL")
 
 		err := engine.GracefulClose(ctx)
 		if err != nil {
 			fmt.Printf("  → Storage engine closed with error: %v\n", err)
+			logger.Error("storage engine closed with error", "error", err)
 		} else {
 			fmt.Println("  → Storage engine closed")
+			logger.Info("storage engine closed")
 		}
 		return err
 	}, shutdown.PriorityLast)
 
+	logger.Info("ready to accept connections",
+		"shutdown_timeout", cfg.Shutdown.Timeout,
+		"drain_timeout", cfg.Shutdown.DrainTimeout,
+	)
 	fmt.Printf("\nGraceful shutdown: timeout=%v, drain=%v\n",
 		cfg.Shutdown.Timeout, cfg.Shutdown.DrainTimeout)
 	fmt.Println("Ready to accept connections. Press Ctrl+C to stop.")
@@ -290,6 +321,7 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigChan
 
+	logger.Info("received shutdown signal", "signal", sig.String())
 	fmt.Printf("\nReceived signal: %v\n", sig)
 	fmt.Println("Starting graceful shutdown...")
 	startTime := time.Now()
@@ -305,11 +337,18 @@ func main() {
 	errors := shutdownCoordinator.Errors()
 
 	if len(errors) > 0 {
+		logger.Warn("shutdown completed with errors",
+			"error_count", len(errors),
+			"duration_ms", elapsed.Milliseconds(),
+		)
 		fmt.Printf("\nShutdown completed with %d errors in %v:\n", len(errors), elapsed.Round(time.Millisecond))
 		for _, err := range errors {
 			fmt.Printf("  - %v\n", err)
 		}
 	} else {
+		logger.Info("shutdown completed",
+			"duration_ms", elapsed.Milliseconds(),
+		)
 		fmt.Printf("\nShutdown completed successfully in %v\n", elapsed.Round(time.Millisecond))
 	}
 
@@ -359,4 +398,51 @@ High-Performance LSM-Tree Key-Value Store
 `
 	fmt.Println(banner)
 	fmt.Printf("Version: %s | Commit: %s\n\n", Version, Commit)
+}
+
+// setupLogging creates and configures the structured logger.
+func setupLogging(cfg *config.Config) (*logging.Logger, func()) {
+	// Determine output writer
+	var output io.Writer
+	var closer func()
+
+	switch cfg.Logging.Output {
+	case "stdout", "":
+		output = os.Stdout
+		closer = func() {}
+	case "stderr":
+		output = os.Stderr
+		closer = func() {}
+	default:
+		// File output with rotation
+		rf, err := logging.NewRotatingFile(logging.RotatingFileOptions{
+			Path:       cfg.Logging.Output,
+			MaxSize:    cfg.Logging.File.MaxSize,
+			MaxBackups: cfg.Logging.File.MaxBackups,
+			MaxAge:     cfg.Logging.File.MaxAge,
+			Compress:   cfg.Logging.File.Compress,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create log file, falling back to stdout: %v\n", err)
+			output = os.Stdout
+			closer = func() {}
+		} else {
+			output = rf
+			closer = func() { _ = rf.Close() }
+		}
+	}
+
+	// Create logger
+	logger := logging.New(logging.Options{
+		Level:     logging.ParseLevel(cfg.Logging.Level),
+		Format:    logging.ParseFormat(cfg.Logging.Format),
+		Output:    output,
+		AddSource: cfg.Logging.AddSource,
+		Component: "rapidodb",
+	})
+
+	// Set as default logger
+	logging.SetDefault(logger)
+
+	return logger, closer
 }
