@@ -242,10 +242,10 @@ func (rf *RotatingFile) compressFile(path string) {
 	if err != nil {
 		return
 	}
-	defer gzFile.Close()
+	defer func() { _ = gzFile.Close() }()
 
 	gzWriter := gzip.NewWriter(gzFile)
-	defer gzWriter.Close()
+	defer func() { _ = gzWriter.Close() }()
 
 	if _, err := gzWriter.Write(data); err != nil {
 		_ = os.Remove(gzPath)
@@ -253,8 +253,8 @@ func (rf *RotatingFile) compressFile(path string) {
 	}
 
 	// Close gzip writer explicitly before removing original
-	gzWriter.Close()
-	gzFile.Close()
+	defer func() { _ = gzWriter.Close() }()
+	defer func() { _ = gzFile.Close() }()
 
 	// Remove original
 	_ = os.Remove(path)

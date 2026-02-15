@@ -141,7 +141,6 @@ type Logger struct {
 	slog    *slog.Logger
 	level   *slog.LevelVar
 	opts    Options
-	mu      sync.RWMutex
 	outputs []io.Writer
 }
 
@@ -170,7 +169,7 @@ func New(opts Options) *Logger {
 			}
 			// Map level to uppercase string
 			if a.Key == slog.LevelKey {
-				level := a.Value.Any().(slog.Level)
+				level, _ := a.Value.Any().(slog.Level)
 				a.Value = slog.StringValue(Level(level).String())
 			}
 			return a
