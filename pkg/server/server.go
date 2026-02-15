@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/vladgaus/RapidoDB/pkg/logging"
 	"github.com/vladgaus/RapidoDB/pkg/lsm"
 	"github.com/vladgaus/RapidoDB/pkg/metrics"
 	"github.com/vladgaus/RapidoDB/pkg/ratelimit"
@@ -62,6 +63,9 @@ type Server struct {
 
 	// Prometheus metrics
 	metrics *metrics.RapiDoDBMetrics
+
+	// Structured logging
+	logger *logging.Logger
 
 	// Statistics
 	stats Stats
@@ -245,6 +249,20 @@ func (s *Server) SetMetrics(m *metrics.RapiDoDBMetrics) {
 // Metrics returns the Prometheus metrics collector.
 func (s *Server) Metrics() *metrics.RapiDoDBMetrics {
 	return s.metrics
+}
+
+// SetLogger sets the structured logger.
+// Should be called before Start().
+func (s *Server) SetLogger(l *logging.Logger) {
+	s.logger = l.WithComponent("server")
+}
+
+// Logger returns the server's logger.
+func (s *Server) Logger() *logging.Logger {
+	if s.logger == nil {
+		return logging.Default()
+	}
+	return s.logger
 }
 
 // Start begins listening for connections.

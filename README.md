@@ -251,6 +251,10 @@ RapidoDB/
 │   │   ├── gauge.go         # Gauge metric
 │   │   ├── histogram.go     # Histogram metric
 │   │   └── collector.go     # RapidoDB collector
+│   ├── logging/             # Structured logging
+│   │   ├── logging.go       # Logger core (slog-based)
+│   │   ├── rotation.go      # Log rotation
+│   │   └── request_id.go    # Request ID generation
 │   ├── mvcc/                # MVCC support
 │   │   └── snapshot.go      # Snapshot management
 │   ├── ratelimit/           # Rate limiting
@@ -317,7 +321,7 @@ RapidoDB/
 | 17 | Graceful Shutdown | ✅ | Signal handling, drain, flush |
 | 18 | Rate Limiting | ✅ | Token bucket, per-client limits |
 | 19 | Prometheus Metrics | ✅ | GET /metrics endpoint |
-| 20 | Structured Logging | 🔜 | slog-based logging |
+| 20 | Structured Logging | ✅ | JSON/text, levels, rotation |
 | 21 | Distributed Tracing | 🔜 | Request ID propagation |
 | 22 | Admin API | 🔜 | Compaction triggers, stats |
 | 23 | Backup/Restore | 🔜 | Hot backups |
@@ -755,6 +759,104 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
     scrape_interval: 15s
+```
+
+## 📝 Structured Logging
+
+RapidoDB uses structured logging with JSON output for easy parsing by log aggregators.
+
+### Features
+
+| Feature | Description |
+|:--------|:------------|
+| **JSON Format** | Machine-readable log output |
+| **Text Format** | Human-readable alternative |
+| **Log Levels** | debug, info, warn, error |
+| **Request IDs** | Trace requests across logs |
+| **Log Rotation** | Automatic file rotation |
+| **Compression** | Gzip old log files |
+
+### Example Output
+
+```json
+{"time":"2024-01-15T10:30:00Z","level":"INFO","msg":"server started","component":"rapidodb","addr":"0.0.0.0:11211"}
+{"time":"2024-01-15T10:30:01Z","level":"INFO","msg":"request completed","request_id":"a1b2c3d4-00000001","operation":"SET","duration_ms":0.45}
+{"time":"2024-01-15T10:30:02Z","level":"WARN","msg":"rate limited","client":"192.168.1.100","retry_after_ms":100}
+```
+
+### Configuration
+
+```json
+{
+  "logging": {
+    "level": "info",
+    "format": "json",
+    "output": "stdout",
+    "add_source": false,
+    "file": {
+      "max_size": 100,
+      "max_backups": 5,
+      "max_age": 0,
+      "compress": false
+    }
+  }
+}
+```
+
+| Setting | Default | Description |
+|:--------|:--------|:------------|
+| `level` | `info` | Minimum log level (debug, info, warn, error) |
+| `format` | `json` | Output format (json, text) |
+| `output` | `stdout` | Output destination (stdout, stderr, or file path) |
+| `add_source` | `false` | Include source file and line in logs |
+| `file.max_size` | `100` | Max file size in MB before rotation |
+| `file.max_backups` | `5` | Number of rotated files to keep |
+| `file.max_age` | `0` | Max age in days (0 = no limit) |
+| `file.compress` | `false` | Gzip compress rotated files |
+
+### Log to File with Rotation
+
+```json
+{
+  "logging": {
+    "level": "debug",
+    "format": "json",
+    "output": "/var/log/rapidodb/rapidodb.log",
+    "file": {
+      "max_size": 100,
+      "max_backups": 10,
+      "max_age": 30,
+      "compress": true
+    }
+  }
+}
+```
+
+### Programmatic Usage
+
+```go
+import "github.com/vladgaus/RapidoDB/pkg/logging"
+
+// Create logger
+logger := logging.New(logging.Options{
+    Level:  logging.LevelInfo,
+    Format: logging.FormatJSON,
+    Output: os.Stdout,
+})
+
+// Log with structured fields
+logger.Info("operation completed",
+    "key", "mykey",
+    "duration_ms", 1.5,
+    "bytes", 1024,
+)
+
+// Create request-scoped logger
+reqID := logging.GenerateRequestID()
+reqLogger := logging.NewRequestLogger(logger, reqID)
+reqLogger.Start("GET")
+// ... do work ...
+reqLogger.Success("GET", "status", 200)
 ```
 
 ## 📊 Benchmarks
