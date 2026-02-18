@@ -237,7 +237,6 @@ func (b *BatchExporter) Shutdown() error {
 
 // JaegerExporter exports spans to Jaeger via HTTP/Thrift.
 type JaegerExporter struct {
-	mu       sync.Mutex
 	endpoint string
 	client   *http.Client
 	closed   atomic.Bool
@@ -353,7 +352,7 @@ func (e *JaegerExporter) Export(span SpanData) {
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 }
 
 func (e *JaegerExporter) convertSpan(span SpanData) JaegerSpan {
@@ -432,7 +431,6 @@ func (e *JaegerExporter) Shutdown() error {
 
 // ZipkinExporter exports spans to Zipkin via HTTP.
 type ZipkinExporter struct {
-	mu       sync.Mutex
 	endpoint string
 	client   *http.Client
 	closed   atomic.Bool
@@ -556,7 +554,7 @@ func (e *ZipkinExporter) Export(span SpanData) {
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 }
 
 // Shutdown shuts down the exporter.
