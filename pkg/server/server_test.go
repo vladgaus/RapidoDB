@@ -543,6 +543,7 @@ func BenchmarkSetGet(b *testing.B) {
 	serverOpts := DefaultOptions()
 	serverOpts.Host = "127.0.0.1"
 	serverOpts.Port = 0
+	serverOpts.RateLimit.Enabled = false
 
 	srv := New(engine, serverOpts)
 	srv.Start()
@@ -552,6 +553,8 @@ func BenchmarkSetGet(b *testing.B) {
 	conn, _ := d.DialContext(context.Background(), "tcp", srv.Addr())
 	defer conn.Close()
 
+	reader := bufio.NewReader(conn)
+
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
@@ -560,11 +563,10 @@ func BenchmarkSetGet(b *testing.B) {
 
 		// Set
 		fmt.Fprintf(conn, "set %s 0 0 %d\r\n%s\r\n", key, len(value), value)
-		bufio.NewReader(conn).ReadString('\n')
+		reader.ReadString('\n')
 
 		// Get
 		fmt.Fprintf(conn, "get %s\r\n", key)
-		reader := bufio.NewReader(conn)
 		for {
 			line, _ := reader.ReadString('\n')
 			if strings.TrimSpace(line) == "END" {

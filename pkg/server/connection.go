@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vladgaus/RapidoDB/pkg/tracing"
 )
 
 // Connection handles a single client connection.
@@ -170,6 +172,23 @@ func (c *Connection) handleGet(cmd *Command, withCAS bool) {
 	start := time.Now()
 	c.server.stats.CmdGet.Add(1)
 
+	// Start tracing span
+	var span *tracing.Span
+	if c.server.tracer != nil {
+		_, span = c.server.tracer.Start(context.Background(), tracing.SpanGet,
+			tracing.WithSpanKind(tracing.SpanKindServer),
+			tracing.WithAttributes(
+				tracing.String(tracing.AttrDBSystem, "rapidodb"),
+				tracing.String(tracing.AttrDBOperation, "get"),
+				tracing.Int(tracing.AttrDBTableCount, len(cmd.Keys)),
+			),
+		)
+		defer span.End()
+	}
+
+	var bytesRead int64
+	var hits, misses int
+
 	for _, key := range cmd.Keys {
 		value, err := c.server.engine.Get([]byte(key))
 		if err != nil || value == nil {
@@ -177,6 +196,7 @@ func (c *Connection) handleGet(cmd *Command, withCAS bool) {
 			if c.server.metrics != nil {
 				c.server.metrics.CacheMisses.Inc()
 			}
+			misses++
 			continue
 		}
 
@@ -184,6 +204,8 @@ func (c *Connection) handleGet(cmd *Command, withCAS bool) {
 		if c.server.metrics != nil {
 			c.server.metrics.CacheHits.Inc()
 		}
+		hits++
+		bytesRead += int64(len(value))
 
 		// Decode stored format: flags (4 bytes) + data
 		if len(value) < 4 {
@@ -204,6 +226,16 @@ func (c *Connection) handleGet(cmd *Command, withCAS bool) {
 
 	c.resp.WriteEnd()
 
+	// Update span with results
+	if span != nil {
+		span.SetAttributes(
+			tracing.Int64(tracing.AttrDBBytesRead, bytesRead),
+			tracing.Int("cache.hits", hits),
+			tracing.Int("cache.misses", misses),
+		)
+		span.SetStatus(tracing.StatusOK, "")
+	}
+
 	// Update metrics
 	if c.server.metrics != nil {
 		c.server.metrics.ReadsTotal.Add(uint64(len(cmd.Keys)))
@@ -216,6 +248,22 @@ func (c *Connection) handleSet(cmd *Command) {
 	start := time.Now()
 	c.server.stats.CmdSet.Add(1)
 
+	// Start tracing span
+	var span *tracing.Span
+	if c.server.tracer != nil {
+		_, span = c.server.tracer.Start(context.Background(), tracing.SpanPut,
+			tracing.WithSpanKind(tracing.SpanKindServer),
+			tracing.WithAttributes(
+				tracing.String(tracing.AttrDBSystem, "rapidodb"),
+				tracing.String(tracing.AttrDBOperation, "set"),
+				tracing.String(tracing.AttrDBKey, cmd.Keys[0]),
+				tracing.Int(tracing.AttrDBKeySize, len(cmd.Keys[0])),
+				tracing.Int(tracing.AttrDBValueSize, len(cmd.Data)),
+			),
+		)
+		defer span.End()
+	}
+
 	// Encode value with flags: flags (4 bytes) + data
 	value := make([]byte, 4+len(cmd.Data))
 	binary.LittleEndian.PutUint32(value[:4], cmd.Flags)
@@ -223,8 +271,16 @@ func (c *Connection) handleSet(cmd *Command) {
 
 	err := c.server.engine.Put([]byte(cmd.Keys[0]), value)
 	if err != nil {
+		if span != nil {
+			span.RecordError(err)
+		}
 		c.resp.WriteServerError(err.Error())
 		return
+	}
+
+	if span != nil {
+		span.SetAttributes(tracing.Int64(tracing.AttrDBBytesWrite, int64(len(value))))
+		span.SetStatus(tracing.StatusOK, "")
 	}
 
 	c.resp.WriteStored()
@@ -311,17 +367,42 @@ func (c *Connection) handleDelete(cmd *Command) {
 
 	key := []byte(cmd.Keys[0])
 
+	// Start tracing span
+	var span *tracing.Span
+	if c.server.tracer != nil {
+		_, span = c.server.tracer.Start(context.Background(), tracing.SpanDelete,
+			tracing.WithSpanKind(tracing.SpanKindServer),
+			tracing.WithAttributes(
+				tracing.String(tracing.AttrDBSystem, "rapidodb"),
+				tracing.String(tracing.AttrDBOperation, "delete"),
+				tracing.String(tracing.AttrDBKey, cmd.Keys[0]),
+				tracing.Int(tracing.AttrDBKeySize, len(cmd.Keys[0])),
+			),
+		)
+		defer span.End()
+	}
+
 	// Check if key exists
 	existing, err := c.server.engine.Get(key)
 	if err != nil || existing == nil {
+		if span != nil {
+			span.SetStatus(tracing.StatusOK, "not_found")
+		}
 		c.resp.WriteNotFound()
 		return
 	}
 
 	err = c.server.engine.Delete(key)
 	if err != nil {
+		if span != nil {
+			span.RecordError(err)
+		}
 		c.resp.WriteServerError(err.Error())
 		return
+	}
+
+	if span != nil {
+		span.SetStatus(tracing.StatusOK, "")
 	}
 
 	c.resp.WriteDeleted()

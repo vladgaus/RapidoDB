@@ -19,6 +19,7 @@ import (
 	"github.com/vladgaus/RapidoDB/pkg/metrics"
 	"github.com/vladgaus/RapidoDB/pkg/server"
 	"github.com/vladgaus/RapidoDB/pkg/shutdown"
+	"github.com/vladgaus/RapidoDB/pkg/tracing"
 )
 
 // Build-time variables (set by ldflags)
@@ -154,6 +155,19 @@ func main() {
 		rapidoDBMetrics.StartStatsCollector(engine, 5*time.Second)
 	}
 
+	// Setup tracing
+	var tracer *tracing.Tracer
+	if cfg.Tracing.Enabled {
+		tracer = setupTracing(cfg, logger)
+		if tracer != nil {
+			srv.SetTracer(tracer)
+			logger.Info("tracing enabled",
+				"exporter", cfg.Tracing.Exporter,
+				"sample_rate", cfg.Tracing.SampleRate,
+			)
+		}
+	}
+
 	// Start server
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to start server: %v\n", err)
@@ -270,6 +284,19 @@ func main() {
 				fmt.Printf("  → Metrics server closed with error: %v\n", err)
 			} else {
 				fmt.Println("  → Metrics server closed")
+			}
+			return err
+		}, shutdown.PriorityEarly)
+	}
+
+	// 2d. Shutdown tracer (flush pending spans)
+	if tracer != nil {
+		shutdownCoordinator.RegisterHook("tracer", func(ctx context.Context) error {
+			err := tracer.Shutdown()
+			if err != nil {
+				fmt.Printf("  → Tracer shutdown with error: %v\n", err)
+			} else {
+				fmt.Println("  → Tracer shutdown")
 			}
 			return err
 		}, shutdown.PriorityEarly)
@@ -445,4 +472,69 @@ func setupLogging(cfg *config.Config) (*logging.Logger, func()) {
 	logging.SetDefault(logger)
 
 	return logger, closer
+}
+
+// setupTracing creates and configures the distributed tracer.
+func setupTracing(cfg *config.Config, logger *logging.Logger) *tracing.Tracer {
+	// Create exporter based on config
+	var exporter tracing.Exporter
+	switch cfg.Tracing.Exporter {
+	case "json":
+		exporter = tracing.NewJSONExporter(os.Stdout)
+	case "jaeger":
+		endpoint := cfg.Tracing.Endpoint
+		if endpoint == "" {
+			endpoint = "http://localhost:14268/api/traces"
+		}
+		exporter = tracing.NewJaegerExporter(tracing.JaegerExporterOptions{
+			Endpoint: endpoint,
+		})
+		logger.Info("jaeger exporter configured", "endpoint", endpoint)
+	case "zipkin":
+		endpoint := cfg.Tracing.Endpoint
+		if endpoint == "" {
+			endpoint = "http://localhost:9411/api/v2/spans"
+		}
+		exporter = tracing.NewZipkinExporter(tracing.ZipkinExporterOptions{
+			Endpoint: endpoint,
+		})
+		logger.Info("zipkin exporter configured", "endpoint", endpoint)
+	case "none", "":
+		exporter = tracing.NoopExporter()
+	default:
+		logger.Warn("unknown tracing exporter, using noop", "exporter", cfg.Tracing.Exporter)
+		exporter = tracing.NoopExporter()
+	}
+
+	// Create sampler based on sample rate
+	var sampler tracing.Sampler
+	if cfg.Tracing.SampleRate <= 0 {
+		sampler = tracing.NeverSample()
+	} else if cfg.Tracing.SampleRate >= 1.0 {
+		sampler = tracing.AlwaysSample()
+	} else {
+		sampler = tracing.RatioSampler(cfg.Tracing.SampleRate)
+	}
+
+	// Get service name
+	serviceName := cfg.Tracing.ServiceName
+	if serviceName == "" {
+		serviceName = "rapidodb"
+	}
+
+	// Create tracer
+	tracer := tracing.NewTracer(tracing.TracerOptions{
+		ServiceName: serviceName,
+		Exporter:    exporter,
+		Sampler:     sampler,
+		Enabled:     true,
+		Resource: []tracing.Attribute{
+			tracing.String("service.version", Version),
+		},
+	})
+
+	// Set as global tracer
+	tracing.SetGlobalTracer(tracer)
+
+	return tracer
 }
