@@ -2,6 +2,7 @@ package tracing
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -342,7 +343,7 @@ func (e *JaegerExporter) Export(span SpanData) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", e.endpoint, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", e.endpoint, bytes.NewReader(data))
 	if err != nil {
 		return
 	}
@@ -544,7 +545,7 @@ func (e *ZipkinExporter) Export(span SpanData) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", e.endpoint, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", e.endpoint, bytes.NewReader(data))
 	if err != nil {
 		return
 	}

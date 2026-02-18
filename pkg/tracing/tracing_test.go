@@ -106,7 +106,7 @@ func TestTracerStart(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	ctx, span := tracer.Start(ctx, "test-operation")
+	_, span := tracer.Start(ctx, "test-operation")
 
 	if span == nil {
 		t.Fatal("Start returned nil span")
@@ -146,7 +146,7 @@ func TestTracerChildSpan(t *testing.T) {
 	ctx, parent := tracer.Start(ctx, "parent")
 	defer parent.End()
 
-	ctx, child := tracer.Start(ctx, "child")
+	_, child := tracer.Start(ctx, "child")
 	defer child.End()
 
 	parentSC := parent.SpanContext()
