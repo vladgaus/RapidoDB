@@ -63,6 +63,9 @@ type Config struct {
 
 	// Logging configuration
 	Logging LoggingConfig `json:"logging"`
+
+	// Tracing configuration
+	Tracing TracingConfig `json:"tracing"`
 }
 
 // MemTableConfig holds MemTable-specific configuration.
@@ -393,6 +396,36 @@ type LogFileConfig struct {
 	Compress bool `json:"compress"`
 }
 
+// TracingConfig holds distributed tracing settings.
+type TracingConfig struct {
+	// Enabled determines if tracing is active.
+	// Default: false
+	Enabled bool `json:"enabled"`
+
+	// Exporter specifies the tracing backend.
+	// Values: "none", "json", "jaeger", "zipkin"
+	// Default: "none"
+	Exporter string `json:"exporter"`
+
+	// Endpoint is the collector endpoint URL.
+	// Jaeger: http://localhost:14268/api/traces
+	// Zipkin: http://localhost:9411/api/v2/spans
+	Endpoint string `json:"endpoint"`
+
+	// SampleRate is the fraction of traces to sample (0.0 to 1.0).
+	// Default: 1.0 (sample all)
+	SampleRate float64 `json:"sample_rate"`
+
+	// ServiceName is the name reported to the tracing backend.
+	// Default: "rapidodb"
+	ServiceName string `json:"service_name"`
+
+	// Propagation specifies the trace context format.
+	// Values: "w3c", "b3", "b3-single"
+	// Default: "w3c"
+	Propagation string `json:"propagation"`
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -491,6 +524,14 @@ func DefaultConfig() *Config {
 				MaxAge:     0,
 				Compress:   false,
 			},
+		},
+		Tracing: TracingConfig{
+			Enabled:     false,
+			Exporter:    "none",
+			Endpoint:    "",
+			SampleRate:  1.0,
+			ServiceName: "rapidodb",
+			Propagation: "w3c",
 		},
 	}
 }
