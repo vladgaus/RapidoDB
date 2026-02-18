@@ -30,6 +30,7 @@ import (
 	"github.com/vladgaus/RapidoDB/pkg/lsm"
 	"github.com/vladgaus/RapidoDB/pkg/metrics"
 	"github.com/vladgaus/RapidoDB/pkg/ratelimit"
+	"github.com/vladgaus/RapidoDB/pkg/tracing"
 )
 
 // Server is a TCP server that handles Memcached protocol requests.
@@ -66,6 +67,9 @@ type Server struct {
 
 	// Structured logging
 	logger *logging.Logger
+
+	// Distributed tracing
+	tracer *tracing.Tracer
 
 	// Statistics
 	stats Stats
@@ -263,6 +267,17 @@ func (s *Server) Logger() *logging.Logger {
 		return logging.Default()
 	}
 	return s.logger
+}
+
+// SetTracer sets the distributed tracer.
+// Should be called before Start().
+func (s *Server) SetTracer(t *tracing.Tracer) {
+	s.tracer = t
+}
+
+// Tracer returns the server's tracer, or nil if not set.
+func (s *Server) Tracer() *tracing.Tracer {
+	return s.tracer
 }
 
 // Start begins listening for connections.
