@@ -269,6 +269,12 @@ RapidoDB/
 │   ├── shutdown/            # Graceful shutdown
 │   │   ├── shutdown.go      # Shutdown coordinator
 │   │   └── drainer.go       # Request drainer
+│   ├── tracing/             # Distributed tracing
+│   │   ├── tracing.go       # Span and trace IDs
+│   │   ├── tracer.go        # Tracer implementation
+│   │   ├── sampler.go       # Sampling strategies
+│   │   ├── exporter.go      # Jaeger/Zipkin exporters
+│   │   └── propagation.go   # W3C/B3 context propagation
 │   ├── sstable/             # SSTable format
 │   │   ├── format.go        # File format
 │   │   ├── writer.go        # SSTable writer
@@ -322,7 +328,7 @@ RapidoDB/
 | 18 | Rate Limiting | ✅ | Token bucket, per-client limits |
 | 19 | Prometheus Metrics | ✅ | GET /metrics endpoint |
 | 20 | Structured Logging | ✅ | JSON/text, levels, rotation |
-| 21 | Distributed Tracing | 🔜 | Request ID propagation |
+| 21 | Distributed Tracing | ✅ | OpenTelemetry, Jaeger/Zipkin |
 | 22 | Admin API | 🔜 | Compaction triggers, stats |
 | 23 | Backup/Restore | 🔜 | Hot backups |
 | 24 | Import/Export | 🔜 | JSON/CSV support |
@@ -857,6 +863,127 @@ reqLogger := logging.NewRequestLogger(logger, reqID)
 reqLogger.Start("GET")
 // ... do work ...
 reqLogger.Success("GET", "status", 200)
+```
+
+## 🔍 Distributed Tracing
+
+RapidoDB provides distributed tracing compatible with OpenTelemetry, Jaeger, and Zipkin.
+
+### Features
+
+| Feature | Description |
+|:--------|:------------|
+| **OpenTelemetry Compatible** | W3C Trace Context propagation |
+| **Jaeger Export** | HTTP/Thrift export to Jaeger |
+| **Zipkin Export** | HTTP v2 API export to Zipkin |
+| **B3 Propagation** | Zipkin B3 header support |
+| **Sampling** | Always, Never, Ratio, Rate-limited |
+| **Zero Dependencies** | No external libraries required |
+
+### Example Output (JSON)
+
+```json
+{
+  "trace_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "span_id": "1234567890abcdef",
+  "parent_span_id": "abcdef1234567890",
+  "name": "rapidodb.get",
+  "kind": "SERVER",
+  "start_time": "2024-01-15T10:30:00.123456789Z",
+  "duration_ms": 0.45,
+  "status": "OK",
+  "attributes": {
+    "service.name": "rapidodb",
+    "db.key": "mykey",
+    "db.bytes.read": 1024
+  }
+}
+```
+
+### Configuration
+
+```go
+import "github.com/vladgaus/RapidoDB/pkg/tracing"
+
+// Create tracer with Jaeger export
+tracer := tracing.NewTracer(tracing.TracerOptions{
+    ServiceName: "rapidodb",
+    Exporter:    tracing.NewJaegerExporter(tracing.JaegerExporterOptions{
+        Endpoint: "http://localhost:14268/api/traces",
+    }),
+    Sampler: tracing.RatioSampler(0.1), // Sample 10%
+})
+
+// Create span for operation
+ctx, span := tracer.Start(ctx, tracing.SpanGet,
+    tracing.WithSpanKind(tracing.SpanKindServer),
+)
+defer span.End()
+
+// Add attributes
+span.SetAttributes(
+    tracing.String("db.key", key),
+    tracing.Int("db.bytes.read", len(value)),
+)
+
+// Record errors
+if err != nil {
+    span.RecordError(err)
+}
+```
+
+### Trace Context Propagation
+
+```go
+// W3C Trace Context
+propagator := tracing.NewTraceContextPropagator()
+
+// Inject into outgoing request
+carrier := make(tracing.MapCarrier)
+propagator.Inject(ctx, carrier)
+// carrier["traceparent"] = "00-{trace_id}-{span_id}-01"
+
+// Extract from incoming request
+ctx = propagator.Extract(ctx, carrier)
+```
+
+### Sampling Strategies
+
+```go
+// Always sample (development)
+tracing.AlwaysSample()
+
+// Never sample (disable tracing)
+tracing.NeverSample()
+
+// Sample 10% of traces
+tracing.RatioSampler(0.1)
+
+// Limit to 100 traces/second
+tracing.RateLimitedSampler(100)
+```
+
+### Export to Jaeger
+
+```bash
+# Start Jaeger
+docker run -d --name jaeger \
+  -p 14268:14268 \
+  -p 16686:16686 \
+  jaegertracing/all-in-one
+
+# View traces at http://localhost:16686
+```
+
+### Export to Zipkin
+
+```bash
+# Start Zipkin
+docker run -d --name zipkin \
+  -p 9411:9411 \
+  openzipkin/zipkin
+
+# View traces at http://localhost:9411
 ```
 
 ## 📊 Benchmarks
