@@ -52,6 +52,10 @@ func (e *Engine) Put(key, value []byte) error {
 		return err
 	}
 
+	// Track stats
+	e.statsWrites.Add(1)
+	e.statsBytesWritten.Add(int64(len(key) + len(value)))
+
 	// Update snapshot manager's current sequence
 	e.snapshots.SetCurrentSeq(seqNum)
 
@@ -107,6 +111,9 @@ func (e *Engine) Delete(key []byte) error {
 		e.seqNum-- // Rollback sequence number
 		return err
 	}
+
+	// Track stats
+	e.statsDeletes.Add(1)
 
 	// Update snapshot manager's current sequence
 	e.snapshots.SetCurrentSeq(seqNum)

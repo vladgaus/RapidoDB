@@ -275,6 +275,8 @@ RapidoDB/
 │   │   ├── sampler.go       # Sampling strategies
 │   │   ├── exporter.go      # Jaeger/Zipkin exporters
 │   │   └── propagation.go   # W3C/B3 context propagation
+│   ├── admin/               # Admin HTTP API
+│   │   └── admin.go         # Endpoints for operations
 │   ├── sstable/             # SSTable format
 │   │   ├── format.go        # File format
 │   │   ├── writer.go        # SSTable writer
@@ -329,7 +331,7 @@ RapidoDB/
 | 19 | Prometheus Metrics | ✅ | GET /metrics endpoint |
 | 20 | Structured Logging | ✅ | JSON/text, levels, rotation |
 | 21 | Distributed Tracing | ✅ | OpenTelemetry, Jaeger/Zipkin |
-| 22 | Admin API | 🔜 | Compaction triggers, stats |
+| 22 | Admin API | ✅ | HTTP endpoints for operations |
 | 23 | Backup/Restore | 🔜 | Hot backups |
 | 24 | Import/Export | 🔜 | JSON/CSV support |
 | 25 | CLI Tool | 🔜 | Interactive management |
@@ -984,6 +986,107 @@ docker run -d --name zipkin \
   openzipkin/zipkin
 
 # View traces at http://localhost:9411
+```
+
+## 🔧 Admin API
+
+RapidoDB provides an HTTP Admin API for operational tasks.
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|:---------|:-------|:------------|
+| `/admin/compact` | POST | Trigger manual compaction |
+| `/admin/flush` | POST | Force MemTable flush to disk |
+| `/admin/sstables` | GET | List all SSTables with sizes |
+| `/admin/levels` | GET | Level statistics |
+| `/admin/config` | POST | Hot reload configuration |
+| `/admin/properties` | GET | Database properties |
+| `/admin/range` | DELETE | Delete key range |
+| `/admin/stats` | GET | Operation statistics |
+
+### Configuration
+
+```json
+{
+  "admin": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 9091,
+    "auth_token": "your-secret-token"
+  }
+}
+```
+
+### Example Usage
+
+```bash
+# Trigger compaction
+curl -X POST http://localhost:9091/admin/compact
+
+# Force flush
+curl -X POST http://localhost:9091/admin/flush
+
+# List SSTables
+curl http://localhost:9091/admin/sstables
+
+# Get level stats
+curl http://localhost:9091/admin/levels
+
+# Get database properties
+curl http://localhost:9091/admin/properties
+
+# Get operation statistics
+curl http://localhost:9091/admin/stats
+
+# Delete key range (maintenance)
+curl -X DELETE http://localhost:9091/admin/range \
+  -H "Content-Type: application/json" \
+  -d '{"start_key": "temp:", "end_key": "temp:~"}'
+```
+
+### With Authentication
+
+```bash
+# If auth_token is configured
+curl -H "Authorization: Bearer your-secret-token" \
+  http://localhost:9091/admin/stats
+```
+
+### Example Responses
+
+**GET /admin/levels**
+```json
+{
+  "success": true,
+  "data": {
+    "num_levels": 7,
+    "total_size": 104857600,
+    "total_size_hr": "100.0 MB",
+    "total_files": 15,
+    "levels": [
+      {"level": 0, "num_files": 3, "size": 12582912, "size_hr": "12.0 MB"},
+      {"level": 1, "num_files": 5, "size": 52428800, "size_hr": "50.0 MB"}
+    ]
+  }
+}
+```
+
+**GET /admin/stats**
+```json
+{
+  "success": true,
+  "data": {
+    "total_reads": 1000000,
+    "total_writes": 500000,
+    "total_deletes": 10000,
+    "bytes_read": 104857600,
+    "bytes_written": 52428800,
+    "cache_hits": 950000,
+    "cache_misses": 50000,
+    "hit_rate": "95.00%"
+  }
+}
 ```
 
 ## 📊 Benchmarks
