@@ -1018,6 +1018,11 @@ RapidoDB provides an HTTP Admin API for operational tasks.
 }
 ```
 
+```bash
+# Start server with enabled api
+./build/rapidodb-server --data-dir ./data --config config.json
+```
+
 ### Example Usage
 
 ```bash
