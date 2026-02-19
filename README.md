@@ -1010,6 +1010,11 @@ RapidoDB provides an HTTP Admin API for operational tasks.
 | `/admin/properties` | GET | Database properties |
 | `/admin/range` | DELETE | Delete key range |
 | `/admin/stats` | GET | Operation statistics |
+| `/admin/import/csv` | POST | Import from CSV file |
+| `/admin/import/json` | POST | Import from JSON Lines file |
+| `/admin/export/csv` | POST | Export to CSV file |
+| `/admin/export/json` | POST | Export to JSON Lines file |
+| `/admin/import/stats` | GET | Import/Export statistics |
 
 ### Configuration
 
@@ -1054,6 +1059,29 @@ curl http://localhost:9091/admin/stats
 curl -X DELETE http://localhost:9091/admin/range \
   -H "Content-Type: application/json" \
   -d '{"start_key": "temp:", "end_key": "temp:~"}'
+
+# Import from CSV file
+curl -X POST http://localhost:9091/admin/import/csv \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/data/import.csv", "has_header": true, "skip_errors": true}'
+
+# Import from JSON Lines file
+curl -X POST http://localhost:9091/admin/import/json \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/data/import.jsonl", "key_prefix": "imported:"}'
+
+# Export to CSV file
+curl -X POST http://localhost:9091/admin/export/csv \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/data/export.csv", "key_prefix": "user:", "include_header": true}'
+
+# Export to JSON Lines file
+curl -X POST http://localhost:9091/admin/export/json \
+  -H "Content-Type: application/json" \
+  -d '{"path": "/data/export.jsonl", "limit": 10000}'
+
+# Get import/export statistics
+curl http://localhost:9091/admin/import/stats
 ```
 
 ### With Authentication
