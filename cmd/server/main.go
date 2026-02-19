@@ -15,6 +15,7 @@ import (
 	"github.com/vladgaus/RapidoDB/pkg/admin"
 	"github.com/vladgaus/RapidoDB/pkg/config"
 	"github.com/vladgaus/RapidoDB/pkg/health"
+	"github.com/vladgaus/RapidoDB/pkg/importer"
 	"github.com/vladgaus/RapidoDB/pkg/logging"
 	"github.com/vladgaus/RapidoDB/pkg/lsm"
 	"github.com/vladgaus/RapidoDB/pkg/metrics"
@@ -248,6 +249,13 @@ func main() {
 			Version:   Version,
 			AuthToken: cfg.Admin.AuthToken,
 		})
+
+		// Setup import/export manager
+		imp := importer.New(importer.Options{
+			Engine: importer.NewLSMEngineWrapper(engine),
+			Logger: logger,
+		})
+		adminServer.SetImportExportManager(admin.NewImporterAdapter(imp))
 
 		if err := adminServer.Start(); err != nil {
 			logger.Error("failed to start admin server", "error", err)
