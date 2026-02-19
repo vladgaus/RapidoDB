@@ -105,6 +105,15 @@ type Engine struct {
 
 	// State
 	closed atomic.Bool
+
+	// Statistics for admin API
+	statsReads        atomic.Int64
+	statsWrites       atomic.Int64
+	statsDeletes      atomic.Int64
+	statsBytesRead    atomic.Int64
+	statsBytesWritten atomic.Int64
+	statsCacheHits    atomic.Int64
+	statsCacheMisses  atomic.Int64
 }
 
 // flushTask represents a MemTable to be flushed.

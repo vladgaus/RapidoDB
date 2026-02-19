@@ -25,8 +25,23 @@ func (e *Engine) Get(key []byte) ([]byte, error) {
 		return nil, ErrClosed
 	}
 
+	// Track stats
+	e.statsReads.Add(1)
+
 	// Use max sequence number to see all writes
-	return e.getInternal(key, e.seqNum)
+	value, err := e.getInternal(key, e.seqNum)
+	if err != nil {
+		return nil, err
+	}
+
+	if value != nil {
+		e.statsBytesRead.Add(int64(len(value)))
+		e.statsCacheHits.Add(1)
+	} else {
+		e.statsCacheMisses.Add(1)
+	}
+
+	return value, nil
 }
 
 // getInternal performs a get with a specific sequence number.

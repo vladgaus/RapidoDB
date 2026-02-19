@@ -66,6 +66,9 @@ type Config struct {
 
 	// Tracing configuration
 	Tracing TracingConfig `json:"tracing"`
+
+	// Admin API configuration
+	Admin AdminConfig `json:"admin"`
 }
 
 // MemTableConfig holds MemTable-specific configuration.
@@ -426,6 +429,25 @@ type TracingConfig struct {
 	Propagation string `json:"propagation"`
 }
 
+// AdminConfig holds Admin API settings.
+type AdminConfig struct {
+	// Enabled determines if the Admin API is active.
+	// Default: false
+	Enabled bool `json:"enabled"`
+
+	// Host is the address to bind to.
+	// Default: "127.0.0.1" (localhost only for security)
+	Host string `json:"host"`
+
+	// Port is the port to listen on.
+	// Default: 9091
+	Port int `json:"port"`
+
+	// AuthToken is an optional bearer token for authentication.
+	// If empty, no authentication is required.
+	AuthToken string `json:"auth_token"`
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -532,6 +554,12 @@ func DefaultConfig() *Config {
 			SampleRate:  1.0,
 			ServiceName: "rapidodb",
 			Propagation: "w3c",
+		},
+		Admin: AdminConfig{
+			Enabled:   false,
+			Host:      "127.0.0.1",
+			Port:      9091,
+			AuthToken: "",
 		},
 	}
 }
