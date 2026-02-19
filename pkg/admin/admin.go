@@ -753,10 +753,7 @@ func (s *Server) handleBackupCreate(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Info("backup requested", "type", req.Type)
 
-	info, err := s.backupManager.CreateBackup(r.Context(), BackupOptions{
-		Type:     req.Type,
-		ParentID: req.ParentID,
-	})
+	info, err := s.backupManager.CreateBackup(r.Context(), BackupOptions(req))
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -874,11 +871,7 @@ func (s *Server) handleBackupRestore(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Info("restore requested", "backup_id", req.BackupID, "target_dir", req.TargetDir)
 
-	if err := s.backupManager.Restore(r.Context(), RestoreOptions{
-		BackupID:  req.BackupID,
-		TargetDir: req.TargetDir,
-		Verify:    req.Verify,
-	}); err != nil {
+	if err := s.backupManager.Restore(r.Context(), RestoreOptions(req)); err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

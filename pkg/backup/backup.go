@@ -35,7 +35,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -192,7 +191,6 @@ type SSTableInfo struct {
 
 // Manager handles backup and restore operations.
 type Manager struct {
-	mu sync.Mutex
 
 	// Dependencies
 	engine  Engine
@@ -436,7 +434,7 @@ func (m *Manager) backupFile(ctx context.Context, info *BackupInfo, srcPath, dst
 	if err != nil {
 		return err
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	// Calculate checksum while copying
 	hash := sha256.New()
@@ -599,7 +597,7 @@ func (m *Manager) restoreBackup(ctx context.Context, info *BackupInfo, targetDir
 		// Write to target
 		dst, err := os.Create(dstPath)
 		if err != nil {
-			reader.Close()
+			_ = reader.Close()
 			return err
 		}
 
@@ -610,8 +608,11 @@ func (m *Manager) restoreBackup(ctx context.Context, info *BackupInfo, targetDir
 		}
 
 		_, err = io.Copy(writer, reader)
-		reader.Close()
-		dst.Close()
+		_ = reader.Close()
+		closeErr := dst.Close()
+		if err == nil {
+			err = closeErr
+		}
 
 		if err != nil {
 			return fmt.Errorf("failed to write %s: %w", dstPath, err)
@@ -660,7 +661,7 @@ func (m *Manager) GetBackup(ctx context.Context, backupID string) (*BackupInfo, 
 	if err != nil {
 		return nil, fmt.Errorf("backup not found: %w", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	var info BackupInfo
 	if err := json.NewDecoder(reader).Decode(&info); err != nil {

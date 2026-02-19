@@ -58,7 +58,7 @@ func NewLocalBackend(basePath string) *LocalBackend {
 }
 
 // Write writes data to a local file.
-func (b *LocalBackend) Write(ctx context.Context, path string, reader io.Reader) error {
+func (b *LocalBackend) Write(ctx context.Context, path string, reader io.Reader) (err error) {
 	fullPath := filepath.Join(b.basePath, path)
 
 	// Create directory
@@ -71,7 +71,11 @@ func (b *LocalBackend) Write(ctx context.Context, path string, reader io.Reader)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	_, err = io.Copy(f, reader)
 	return err
@@ -213,7 +217,7 @@ func NewS3Backend(opts S3Options) (*S3Backend, error) {
 	}, nil
 }
 
-func (b *S3Backend) fullPath(path string) string {
+func (b *S3Backend) fullPath(path string) string { //nolint:unused // reserved for future S3 implementation
 	if b.prefix != "" {
 		return filepath.Join(b.prefix, path)
 	}
@@ -321,7 +325,7 @@ func ParseBackendURL(url string, opts map[string]string) (Backend, error) {
 
 	// az:// URL (Azure)
 	if strings.HasPrefix(url, "az://") {
-		return nil, fmt.Errorf("Azure backend not implemented - use local backend")
+		return nil, fmt.Errorf("azure backend not implemented - use local backend")
 	}
 
 	// Assume local path
