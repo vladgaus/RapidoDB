@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vladgaus/RapidoDB/pkg/admin"
 	"github.com/vladgaus/RapidoDB/pkg/config"
 	"github.com/vladgaus/RapidoDB/pkg/health"
 	"github.com/vladgaus/RapidoDB/pkg/logging"
@@ -234,7 +235,27 @@ func main() {
 
 		logger.Info("metrics server started", "addr", metricsServer.Addr())
 		fmt.Printf("Metrics server listening on %s\n", metricsServer.Addr())
-		fmt.Println("  GET /metrics      - Prometheus metrics")
+	}
+
+	// Setup Admin API server
+	var adminServer *admin.Server
+	if cfg.Admin.Enabled {
+		adminServer = admin.NewServer(admin.Options{
+			Host:      cfg.Admin.Host,
+			Port:      cfg.Admin.Port,
+			Engine:    engine,
+			Logger:    logger,
+			Version:   Version,
+			AuthToken: cfg.Admin.AuthToken,
+		})
+
+		if err := adminServer.Start(); err != nil {
+			logger.Error("failed to start admin server", "error", err)
+			fmt.Printf("Warning: Admin server failed to start: %v\n", err)
+		} else {
+			logger.Info("admin server started", "addr", adminServer.Addr())
+			fmt.Printf("Admin API listening on %s\n", adminServer.Addr())
+		}
 	}
 
 	// Setup graceful shutdown coordinator
@@ -297,6 +318,19 @@ func main() {
 				fmt.Printf("  → Tracer shutdown with error: %v\n", err)
 			} else {
 				fmt.Println("  → Tracer shutdown")
+			}
+			return err
+		}, shutdown.PriorityEarly)
+	}
+
+	// 2e. Close admin server
+	if adminServer != nil {
+		shutdownCoordinator.RegisterHook("admin-server", func(ctx context.Context) error {
+			err := adminServer.Close()
+			if err != nil {
+				fmt.Printf("  → Admin server closed with error: %v\n", err)
+			} else {
+				fmt.Println("  → Admin server closed")
 			}
 			return err
 		}, shutdown.PriorityEarly)
