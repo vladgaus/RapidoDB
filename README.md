@@ -280,6 +280,9 @@ RapidoDB/
 │   ├── backup/              # Backup & Restore
 │   │   ├── backup.go        # Backup manager
 │   │   └── backend.go       # Storage backends (local, S3)
+│   ├── importer/            # Import/Export
+│   │   ├── importer.go      # CSV/JSON import/export
+│   │   └── sstable_import.go # SSTable direct import
 │   ├── sstable/             # SSTable format
 │   │   ├── format.go        # File format
 │   │   ├── writer.go        # SSTable writer
@@ -336,7 +339,7 @@ RapidoDB/
 | 21 | Distributed Tracing | ✅ | OpenTelemetry, Jaeger/Zipkin |
 | 22 | Admin API | ✅ | HTTP endpoints for operations |
 | 23 | Backup/Restore | ✅ | Hot backups, incremental, S3 |
-| 24 | Import/Export | 🔜 | JSON/CSV support |
+| 24 | Import/Export | ✅ | CSV, JSON, SSTable, streaming |
 | 25 | CLI Tool | 🔜 | Interactive management |
 
 ## 🔌 Memcached Protocol
@@ -1248,6 +1251,141 @@ for _, b := range backups {
   }
 }
 ```
+
+## 📥 Import/Export
+
+RapidoDB provides bulk import and export functionality for data migration and ETL workflows.
+
+### Supported Formats
+
+| Format | Import | Export | Description |
+|:-------|:------:|:------:|:------------|
+| CSV | ✅ | ✅ | `key,value` format with configurable columns |
+| JSON Lines | ✅ | ✅ | `{"key":"...","value":"..."}` per line |
+| SSTable | ✅ | - | Direct SSTable file import (fastest) |
+
+### CSV Import/Export
+
+```go
+import "github.com/vladgaus/RapidoDB/pkg/importer"
+
+imp := importer.New(importer.Options{Engine: engine})
+
+// Import CSV
+stats, err := imp.ImportCSV(ctx, "data.csv", importer.CSVOptions{
+    HasHeader:   true,
+    KeyColumn:   0,
+    ValueColumn: 1,
+    Delimiter:   ',',
+    KeyPrefix:   "import:",
+    BatchSize:   1000,
+    SkipErrors:  true,
+})
+fmt.Printf("Imported %d records in %v\n", stats.RecordsImported, stats.Duration)
+
+// Export CSV
+stats, err := imp.ExportCSV(ctx, "export.csv", importer.ExportOptions{
+    KeyPrefix:     "user:",
+    IncludeHeader: true,
+    Limit:         10000,
+})
+```
+
+### JSON Lines Import/Export
+
+```go
+// Import JSON Lines
+stats, err := imp.ImportJSON(ctx, "data.jsonl", importer.JSONOptions{
+    KeyField:   "key",
+    ValueField: "value",
+    KeyPrefix:  "json:",
+    SkipErrors: true,
+})
+
+// Export JSON Lines
+stats, err := imp.ExportJSON(ctx, "export.jsonl", importer.ExportOptions{
+    StartKey: "a",
+    EndKey:   "z",
+})
+```
+
+### Streaming Import (Large Datasets)
+
+```go
+// For very large datasets, use streaming import
+stream := imp.NewStreamImporter(10000) // batch size
+
+for record := range records {
+    stream.Write([]byte(record.Key), []byte(record.Value))
+}
+stream.Flush()
+
+stats := stream.Stats()
+fmt.Printf("Streamed %d records\n", stats.RecordsImported)
+```
+
+### SSTable Direct Import (Fastest)
+
+```go
+import "github.com/vladgaus/RapidoDB/pkg/importer"
+
+// Import existing SSTable files directly
+sstImporter := importer.NewSSTableImporter(importer.SSTableImportOptions{
+    DataDir: "/data/rapidodb",
+})
+
+// Import single file
+stats, err := sstImporter.ImportSSTable(ctx, "/backup/000001.sst")
+
+// Import directory
+stats, err := sstImporter.ImportDirectory(ctx, "/backup/sst/")
+fmt.Printf("Imported %d files (%d bytes)\n", stats.FilesImported, stats.TotalSize)
+```
+
+### Building SSTables Externally
+
+```go
+// Create SSTable files outside the database for bulk loading
+builder, err := importer.NewSSTableBuilder("output.sst", importer.SSTableBuilderOptions{
+    BlockSize: 4096,
+})
+
+// Add entries IN SORTED ORDER
+builder.Add([]byte("key1"), []byte("value1"))
+builder.Add([]byte("key2"), []byte("value2"))
+builder.Add([]byte("key3"), []byte("value3"))
+
+builder.Finish()
+builder.Close()
+
+stats := builder.Stats()
+fmt.Printf("Built SSTable: %d entries, %d bytes\n", stats.EntryCount, stats.DataSize)
+```
+
+### Import Statistics
+
+```go
+type ImportStats struct {
+    RecordsTotal     int64         // Total records processed
+    RecordsImported  int64         // Successfully imported
+    RecordsFailed    int64         // Failed records
+    RecordsSkipped   int64         // Skipped records
+    BytesRead        int64         // Bytes read from source
+    BytesWritten     int64         // Bytes written to DB
+    Duration         time.Duration // Total duration
+    RecordsPerSecond float64       // Throughput
+}
+```
+
+### Performance Tips
+
+| Tip | Impact |
+|:----|:-------|
+| Use SSTable import for large datasets | 10x faster than record-by-record |
+| Increase BatchSize | Reduces flush overhead |
+| Pre-sort data | Enables SSTable builder usage |
+| Use streaming for memory efficiency | Constant memory usage |
+| Enable SkipErrors for dirty data | Prevents abort on bad records |
 
 ## 📊 Benchmarks
 
