@@ -239,3 +239,15 @@ func (e *Engine) GetStats() EngineStats {
 		CacheMisses:  e.statsCacheMisses.Load(),
 	}
 }
+
+// GetDataDir returns the data directory path.
+func (e *Engine) GetDataDir() string {
+	return e.opts.Dir
+}
+
+// GetSequenceNumber returns the current sequence number.
+func (e *Engine) GetSequenceNumber() uint64 {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.seqNum
+}

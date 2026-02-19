@@ -69,6 +69,9 @@ type Config struct {
 
 	// Admin API configuration
 	Admin AdminConfig `json:"admin"`
+
+	// Backup configuration
+	Backup BackupConfig `json:"backup"`
 }
 
 // MemTableConfig holds MemTable-specific configuration.
@@ -448,6 +451,36 @@ type AdminConfig struct {
 	AuthToken string `json:"auth_token"`
 }
 
+// BackupConfig holds backup settings.
+type BackupConfig struct {
+	// Enabled determines if backup API is available.
+	// Default: false
+	Enabled bool `json:"enabled"`
+
+	// Backend specifies the backup storage backend URL.
+	// Supported formats:
+	//   - /path/to/backups (local filesystem)
+	//   - s3://bucket/prefix (Amazon S3)
+	// Default: "./backups"
+	Backend string `json:"backend"`
+
+	// S3Endpoint is the S3-compatible endpoint (for MinIO, etc).
+	S3Endpoint string `json:"s3_endpoint,omitempty"`
+
+	// S3Region is the AWS region.
+	S3Region string `json:"s3_region,omitempty"`
+
+	// S3AccessKey is the AWS access key ID.
+	S3AccessKey string `json:"s3_access_key,omitempty"`
+
+	// S3SecretKey is the AWS secret access key.
+	S3SecretKey string `json:"s3_secret_key,omitempty"`
+
+	// Compression enables backup compression.
+	// Default: false
+	Compression bool `json:"compression"`
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -560,6 +593,11 @@ func DefaultConfig() *Config {
 			Host:      "127.0.0.1",
 			Port:      9091,
 			AuthToken: "",
+		},
+		Backup: BackupConfig{
+			Enabled:     false,
+			Backend:     "./backups",
+			Compression: false,
 		},
 	}
 }

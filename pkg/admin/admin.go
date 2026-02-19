@@ -42,6 +42,9 @@ type Server struct {
 	engine *lsm.Engine
 	logger *logging.Logger
 
+	// Backup manager (optional)
+	backupManager BackupManager
+
 	// HTTP server
 	server   *http.Server
 	listener net.Listener
@@ -53,6 +56,51 @@ type Server struct {
 	// State
 	started atomic.Bool
 	closed  atomic.Bool
+}
+
+// BackupManager is the interface for backup operations.
+type BackupManager interface {
+	CreateBackup(ctx context.Context, opts BackupOptions) (*BackupInfo, error)
+	Restore(ctx context.Context, opts RestoreOptions) error
+	ListBackups(ctx context.Context) ([]BackupInfo, error)
+	GetBackup(ctx context.Context, id string) (*BackupInfo, error)
+	DeleteBackup(ctx context.Context, id string) error
+	Stats() BackupManagerStats
+}
+
+// BackupOptions for creating backups.
+type BackupOptions struct {
+	Type     string `json:"type"` // "full" or "incremental"
+	ParentID string `json:"parent_id,omitempty"`
+}
+
+// RestoreOptions for restoring backups.
+type RestoreOptions struct {
+	BackupID  string `json:"backup_id"`
+	TargetDir string `json:"target_dir"`
+	Verify    bool   `json:"verify"`
+}
+
+// BackupInfo contains backup metadata.
+type BackupInfo struct {
+	ID             string    `json:"id"`
+	Type           string    `json:"type"`
+	Status         string    `json:"status"`
+	ParentID       string    `json:"parent_id,omitempty"`
+	StartTime      time.Time `json:"start_time"`
+	EndTime        time.Time `json:"end_time,omitempty"`
+	SequenceNumber uint64    `json:"sequence_number"`
+	TotalSize      int64     `json:"total_size"`
+	FileCount      int       `json:"file_count"`
+	Error          string    `json:"error,omitempty"`
+}
+
+// BackupManagerStats contains backup statistics.
+type BackupManagerStats struct {
+	BackupsCreated int64 `json:"backups_created"`
+	BackupsFailed  int64 `json:"backups_failed"`
+	BytesBackedUp  int64 `json:"bytes_backed_up"`
+	InProgress     bool  `json:"in_progress"`
 }
 
 // Options configures the admin server.
@@ -200,6 +248,16 @@ func (s *Server) registerHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/properties", s.handleProperties)
 	mux.HandleFunc("/admin/range", s.handleRange)
 	mux.HandleFunc("/admin/stats", s.handleStats)
+
+	// Backup endpoints
+	mux.HandleFunc("/admin/backup", s.handleBackup)
+	mux.HandleFunc("/admin/backup/list", s.handleBackupList)
+	mux.HandleFunc("/admin/backup/restore", s.handleBackupRestore)
+}
+
+// SetBackupManager sets the backup manager.
+func (s *Server) SetBackupManager(bm BackupManager) {
+	s.backupManager = bm
 }
 
 // authMiddleware adds authentication if configured.
@@ -639,4 +697,191 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeSuccess(w, response)
+}
+
+// ============================================================================
+// Backup Handlers
+// ============================================================================
+
+// BackupRequest is the request for creating a backup.
+type BackupRequest struct {
+	Type     string `json:"type"` // "full" or "incremental"
+	ParentID string `json:"parent_id,omitempty"`
+}
+
+// BackupResponse contains backup creation response.
+type BackupResponse struct {
+	BackupID       string    `json:"backup_id"`
+	Type           string    `json:"type"`
+	Status         string    `json:"status"`
+	StartTime      time.Time `json:"start_time"`
+	SequenceNumber uint64    `json:"sequence_number"`
+	TotalSize      int64     `json:"total_size"`
+	TotalSizeHR    string    `json:"total_size_hr"`
+	FileCount      int       `json:"file_count"`
+}
+
+// handleBackup handles POST /admin/backup (create), GET /admin/backup (get), DELETE (delete).
+func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
+	if s.backupManager == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "backup not configured")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPost:
+		s.handleBackupCreate(w, r)
+	case http.MethodGet:
+		s.handleBackupGet(w, r)
+	case http.MethodDelete:
+		s.handleBackupDelete(w, r)
+	default:
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// handleBackupCreate creates a new backup.
+func (s *Server) handleBackupCreate(w http.ResponseWriter, r *http.Request) {
+	var req BackupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req.Type = "full" // Default
+	}
+
+	if req.Type == "" {
+		req.Type = "full"
+	}
+
+	s.logger.Info("backup requested", "type", req.Type)
+
+	info, err := s.backupManager.CreateBackup(r.Context(), BackupOptions{
+		Type:     req.Type,
+		ParentID: req.ParentID,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeSuccess(w, BackupResponse{
+		BackupID:       info.ID,
+		Type:           info.Type,
+		Status:         info.Status,
+		StartTime:      info.StartTime,
+		SequenceNumber: info.SequenceNumber,
+		TotalSize:      info.TotalSize,
+		TotalSizeHR:    humanReadableSize(info.TotalSize),
+		FileCount:      info.FileCount,
+	})
+}
+
+// handleBackupGet gets a backup by ID.
+func (s *Server) handleBackupGet(w http.ResponseWriter, r *http.Request) {
+	backupID := r.URL.Query().Get("id")
+	if backupID == "" {
+		s.writeError(w, http.StatusBadRequest, "backup id required")
+		return
+	}
+
+	info, err := s.backupManager.GetBackup(r.Context(), backupID)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	s.writeSuccess(w, info)
+}
+
+// handleBackupDelete deletes a backup.
+func (s *Server) handleBackupDelete(w http.ResponseWriter, r *http.Request) {
+	backupID := r.URL.Query().Get("id")
+	if backupID == "" {
+		s.writeError(w, http.StatusBadRequest, "backup id required")
+		return
+	}
+
+	if err := s.backupManager.DeleteBackup(r.Context(), backupID); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeMessage(w, "backup deleted")
+}
+
+// BackupListResponse contains list of backups.
+type BackupListResponse struct {
+	Backups []BackupInfo `json:"backups"`
+	Count   int          `json:"count"`
+}
+
+// handleBackupList lists all backups.
+func (s *Server) handleBackupList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.backupManager == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "backup not configured")
+		return
+	}
+
+	backups, err := s.backupManager.ListBackups(r.Context())
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeSuccess(w, BackupListResponse{
+		Backups: backups,
+		Count:   len(backups),
+	})
+}
+
+// RestoreRequest is the request for restoring a backup.
+type RestoreRequest struct {
+	BackupID  string `json:"backup_id"`
+	TargetDir string `json:"target_dir"`
+	Verify    bool   `json:"verify"`
+}
+
+// handleBackupRestore restores a backup.
+func (s *Server) handleBackupRestore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.backupManager == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "backup not configured")
+		return
+	}
+
+	var req RestoreRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.BackupID == "" {
+		s.writeError(w, http.StatusBadRequest, "backup_id required")
+		return
+	}
+
+	if req.TargetDir == "" {
+		s.writeError(w, http.StatusBadRequest, "target_dir required")
+		return
+	}
+
+	s.logger.Info("restore requested", "backup_id", req.BackupID, "target_dir", req.TargetDir)
+
+	if err := s.backupManager.Restore(r.Context(), RestoreOptions{
+		BackupID:  req.BackupID,
+		TargetDir: req.TargetDir,
+		Verify:    req.Verify,
+	}); err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeMessage(w, "restore completed")
 }

@@ -277,6 +277,9 @@ RapidoDB/
 │   │   └── propagation.go   # W3C/B3 context propagation
 │   ├── admin/               # Admin HTTP API
 │   │   └── admin.go         # Endpoints for operations
+│   ├── backup/              # Backup & Restore
+│   │   ├── backup.go        # Backup manager
+│   │   └── backend.go       # Storage backends (local, S3)
 │   ├── sstable/             # SSTable format
 │   │   ├── format.go        # File format
 │   │   ├── writer.go        # SSTable writer
@@ -332,7 +335,7 @@ RapidoDB/
 | 20 | Structured Logging | ✅ | JSON/text, levels, rotation |
 | 21 | Distributed Tracing | ✅ | OpenTelemetry, Jaeger/Zipkin |
 | 22 | Admin API | ✅ | HTTP endpoints for operations |
-| 23 | Backup/Restore | 🔜 | Hot backups |
+| 23 | Backup/Restore | ✅ | Hot backups, incremental, S3 |
 | 24 | Import/Export | 🔜 | JSON/CSV support |
 | 25 | CLI Tool | 🔜 | Interactive management |
 
@@ -1090,6 +1093,158 @@ curl -H "Authorization: Bearer your-secret-token" \
     "cache_hits": 950000,
     "cache_misses": 50000,
     "hit_rate": "95.00%"
+  }
+}
+```
+
+## 💾 Backup & Restore
+
+RapidoDB provides hot backup functionality with support for full and incremental backups.
+
+### Features
+
+| Feature | Description |
+|:--------|:------------|
+| **Hot Backup** | Backup while DB is running |
+| **Incremental** | Only backup changed files |
+| **Point-in-Time** | Restore to specific sequence number |
+| **Checksums** | SHA256 verification |
+| **Multiple Backends** | Local filesystem, S3 (stub) |
+
+### Configuration
+
+```json
+{
+  "backup": {
+    "enabled": true,
+    "backend": "./backups",
+    "compression": false
+  }
+}
+```
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|:---------|:-------|:------------|
+| `/admin/backup` | POST | Create new backup |
+| `/admin/backup` | GET | Get backup info (with ?id=) |
+| `/admin/backup` | DELETE | Delete backup (with ?id=) |
+| `/admin/backup/list` | GET | List all backups |
+| `/admin/backup/restore` | POST | Restore a backup |
+
+### Example Usage
+
+```bash
+# Create full backup
+curl -X POST http://localhost:9091/admin/backup \
+  -H "Content-Type: application/json" \
+  -d '{"type": "full"}'
+
+# Create incremental backup
+curl -X POST http://localhost:9091/admin/backup \
+  -H "Content-Type: application/json" \
+  -d '{"type": "incremental"}'
+
+# List backups
+curl http://localhost:9091/admin/backup/list
+
+# Get specific backup
+curl "http://localhost:9091/admin/backup?id=backup-20240115-120000-123456"
+
+# Restore backup
+curl -X POST http://localhost:9091/admin/backup/restore \
+  -H "Content-Type: application/json" \
+  -d '{
+    "backup_id": "backup-20240115-120000-123456",
+    "target_dir": "/data/restored",
+    "verify": true
+  }'
+
+# Delete backup
+curl -X DELETE "http://localhost:9091/admin/backup?id=backup-20240115-120000-123456"
+```
+
+### Programmatic Usage
+
+```go
+import "github.com/vladgaus/RapidoDB/pkg/backup"
+
+// Create backup manager
+backend := backup.NewLocalBackend("./backups")
+manager := backup.NewManager(backup.ManagerOptions{
+    Engine:  engine,
+    Backend: backend,
+})
+
+// Create full backup
+info, err := manager.CreateBackup(ctx, backup.BackupOptions{
+    Type: backup.BackupTypeFull,
+})
+fmt.Printf("Backup created: %s (%d files, %d bytes)\n",
+    info.ID, info.FileCount, info.TotalSize)
+
+// Create incremental backup
+incr, err := manager.CreateBackup(ctx, backup.BackupOptions{
+    Type: backup.BackupTypeIncremental,
+})
+
+// Restore
+err = manager.Restore(ctx, backup.RestoreOptions{
+    BackupID:  info.ID,
+    TargetDir: "/data/restored",
+    Verify:    true,
+})
+
+// List backups
+backups, _ := manager.ListBackups(ctx)
+for _, b := range backups {
+    fmt.Printf("%s: %s (%s)\n", b.ID, b.Type, b.Status)
+}
+```
+
+### Example Responses
+
+**POST /admin/backup**
+```json
+{
+  "success": true,
+  "data": {
+    "backup_id": "backup-20240115-120000-123456",
+    "type": "full",
+    "status": "completed",
+    "start_time": "2024-01-15T12:00:00Z",
+    "sequence_number": 12345,
+    "total_size": 104857600,
+    "total_size_hr": "100.0 MB",
+    "file_count": 25
+  }
+}
+```
+
+**GET /admin/backup/list**
+```json
+{
+  "success": true,
+  "data": {
+    "backups": [
+      {
+        "id": "backup-20240115-120000-123456",
+        "type": "full",
+        "status": "completed",
+        "total_size": 104857600,
+        "file_count": 25
+      },
+      {
+        "id": "backup-20240115-140000-789012",
+        "type": "incremental",
+        "status": "completed",
+        "parent_id": "backup-20240115-120000-123456",
+        "total_size": 1048576,
+        "file_count": 3
+      }
+    ],
+    "count": 2
   }
 }
 ```
