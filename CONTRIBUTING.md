@@ -191,7 +191,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 - `admin`: Admin API
 - `backup`: Backup/Restore
 - `import`: Import/Export 
-- `cLI`: CLI Tool
+- `cli`: CLI Tool
 
 ### Examples
 
