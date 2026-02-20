@@ -164,6 +164,7 @@ make build
 # Or build manually
 go build -o build/rapidodb-server ./cmd/server
 go build -o build/rapidodb-bench ./cmd/bench
+go build -o build/rapidodb-cli ./cmd/cli
 ```
 
 ### Running the Server
@@ -202,7 +203,9 @@ RapidoDB/
 ├── cmd/
 │   ├── server/              # TCP server entry point
 │   │   └── main.go
-│   └── bench/               # Benchmark tool
+│   ├── bench/               # Benchmark tool
+│   │   └── main.go
+│   └── cli/                 # Command-line interface
 │       └── main.go
 ├── pkg/
 │   ├── benchmark/           # Benchmark framework
@@ -340,7 +343,7 @@ RapidoDB/
 | 22 | Admin API | ✅ | HTTP endpoints for operations |
 | 23 | Backup/Restore | ✅ | Hot backups, incremental, S3 |
 | 24 | Import/Export | ✅ | CSV, JSON, SSTable, streaming |
-| 25 | CLI Tool | 🔜 | Interactive management |
+| 25 | CLI Tool | ✅ | Interactive management |
 
 ## 🔌 Memcached Protocol
 
@@ -1414,6 +1417,154 @@ type ImportStats struct {
 | Pre-sort data | Enables SSTable builder usage |
 | Use streaming for memory efficiency | Constant memory usage |
 | Enable SkipErrors for dirty data | Prevents abort on bad records |
+
+## 🖥️ CLI Tool (rapidodb-cli)
+
+RapidoDB includes a command-line interface for managing and interacting with the database.
+
+### Installation
+
+```bash
+# Build from source
+make cli
+
+# Or build directly
+go build -o rapidodb-cli ./cmd/cli/
+```
+
+### Basic Usage
+
+```bash
+# Get a value
+rapidodb-cli get mykey
+
+# Set a value (with optional TTL in seconds)
+rapidodb-cli set user:1 '{"name":"John"}' 3600
+
+# Delete a key
+rapidodb-cli delete mykey
+
+# Ping server
+rapidodb-cli ping
+
+# View stats
+rapidodb-cli stats
+```
+
+### Connection Options
+
+```bash
+# Connect to remote server
+rapidodb-cli -h 192.168.1.10 -p 11211 get mykey
+
+# With custom admin port
+rapidodb-cli --host=db.example.com --admin-port=9091 info
+
+# With timeout
+rapidodb-cli --timeout=10s stats
+```
+
+### Admin Commands
+
+```bash
+# Server info
+rapidodb-cli info
+
+# Trigger compaction
+rapidodb-cli compact
+
+# Flush memtable
+rapidodb-cli flush
+
+# View level stats
+rapidodb-cli levels
+
+# List SSTables
+rapidodb-cli sstables
+```
+
+### Backup Commands
+
+```bash
+# Create full backup
+rapidodb-cli backup --type=full
+
+# List backups
+rapidodb-cli backups
+
+# Restore backup
+rapidodb-cli restore backup-20240101-120000 /restore/path
+```
+
+### Import/Export Commands
+
+```bash
+# Import CSV
+rapidodb-cli import-csv /data/import.csv --prefix=imported: --header
+
+# Import JSON Lines
+rapidodb-cli import-json /data/import.jsonl --prefix=data:
+
+# Export to CSV
+rapidodb-cli export-csv /data/export.csv --prefix=user: --limit=10000
+
+# Export to JSON Lines
+rapidodb-cli export-json /data/export.jsonl
+```
+
+### Interactive Mode
+
+```bash
+rapidodb-cli -i
+# Or just run without arguments
+rapidodb-cli
+```
+
+Interactive session example:
+```
+RapidoDB CLI - Interactive Mode
+Type 'help' for commands, 'exit' to quit
+
+rapidodb (disconnected)> connect localhost:11211
+PONG from localhost:11211 (RapidoDB 0.23.0) - 1.2ms
+
+rapidodb [localhost:11211]> set greeting "Hello, World!"
+OK
+
+rapidodb [localhost:11211]> get greeting
+Hello, World!
+
+rapidodb [localhost:11211]> stats
+pid:                      12345
+uptime:                   3600
+cmd_get:                  10000
+cmd_set:                  5000
+
+rapidodb [localhost:11211]> exit
+Bye!
+```
+
+### All Commands Reference
+
+| Command | Description |
+|:--------|:------------|
+| `get <key>` | Get value by key |
+| `set <key> <value> [ttl]` | Set key-value pair |
+| `delete <key>` | Delete a key |
+| `stats` | Show memcached stats |
+| `ping` | Ping server |
+| `info` | Show server properties |
+| `backup [--type=TYPE]` | Create backup |
+| `backups` | List backups |
+| `restore <id> <dir>` | Restore backup |
+| `compact` | Trigger compaction |
+| `flush` | Flush memtable |
+| `levels` | Show level stats |
+| `sstables` | List SSTables |
+| `import-csv <file>` | Import from CSV |
+| `import-json <file>` | Import from JSON Lines |
+| `export-csv <file>` | Export to CSV |
+| `export-json <file>` | Export to JSON Lines |
 
 ## 📊 Benchmarks
 
