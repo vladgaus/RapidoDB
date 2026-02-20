@@ -85,7 +85,7 @@ func (m *mockIterator) Valid() bool   { return m.pos < len(m.keys) }
 func (m *mockIterator) Key() []byte   { return []byte(m.keys[m.pos]) }
 func (m *mockIterator) Value() []byte { return m.values[m.pos] }
 func (m *mockIterator) Next()         { m.pos++ }
-func (m *mockIterator) Close()        {}
+func (m *mockIterator) Close() error  { return nil }
 func (m *mockIterator) Error() error  { return nil }
 
 // ============================================================================

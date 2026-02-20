@@ -60,7 +60,7 @@ type Iterator interface {
 	Key() []byte
 	Value() []byte
 	Next()
-	Close()
+	Close() error
 	Error() error
 }
 
@@ -534,7 +534,7 @@ func (i *Importer) exportCSVWriter(ctx context.Context, w io.Writer, opts Export
 	}
 
 	iter := i.engine.Scan(startKey, endKey)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	i.logger.Info("starting CSV export")
 
@@ -639,6 +639,7 @@ func (i *Importer) exportJSONWriter(ctx context.Context, w io.Writer, opts Expor
 	stats := &ExportStats{}
 
 	bufWriter := bufio.NewWriter(w)
+	defer func() { _ = bufWriter.Flush() }()
 
 	encoder := json.NewEncoder(bufWriter)
 
@@ -655,7 +656,7 @@ func (i *Importer) exportJSONWriter(ctx context.Context, w io.Writer, opts Expor
 	}
 
 	iter := i.engine.Scan(startKey, endKey)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	i.logger.Info("starting JSON export")
 

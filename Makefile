@@ -13,6 +13,7 @@ GOVET=$(GOCMD) vet
 # Binary names
 SERVER_BINARY=rapidodb-server
 BENCH_BINARY=rapidodb-bench
+CLI_BINARY=rapidodb-cli
 
 # Directories
 BUILD_DIR=./build
@@ -25,13 +26,13 @@ COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 LDFLAGS=-ldflags "-s -w -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME) -X main.Commit=$(COMMIT)"
 
-.PHONY: all build clean test bench fmt vet lint deps help server bench-tool
+.PHONY: all build clean test bench fmt vet lint deps help server bench-tool cli
 
 # Default target
 all: clean deps fmt vet test build
 
 # Build all binaries
-build: server bench-tool
+build: server bench-tool cli
 	@echo "Build complete!"
 
 # Build server binary
@@ -45,6 +46,12 @@ bench-tool:
 	@echo "Building benchmark tool..."
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BENCH_BINARY) $(CMD_DIR)/bench/main.go
+
+# Build CLI tool
+cli:
+	@echo "Building CLI tool..."
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(CLI_BINARY) $(CMD_DIR)/cli/main.go
 
 # Run all tests
 test:

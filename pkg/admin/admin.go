@@ -35,6 +35,7 @@ import (
 
 // Server is the HTTP admin API server.
 type Server struct {
+
 	// Configuration
 	opts Options
 
@@ -44,6 +45,9 @@ type Server struct {
 
 	// Backup manager (optional)
 	backupManager BackupManager
+
+	// Import/Export manager (optional)
+	importExportManager ImportExportManager
 
 	// HTTP server
 	server   *http.Server
@@ -66,6 +70,67 @@ type BackupManager interface {
 	GetBackup(ctx context.Context, id string) (*BackupInfo, error)
 	DeleteBackup(ctx context.Context, id string) error
 	Stats() BackupManagerStats
+}
+
+// ImportExportManager is the interface for import/export operations.
+type ImportExportManager interface {
+	ImportCSV(ctx context.Context, path string, opts ImportCSVOptions) (*ImportStats, error)
+	ImportJSON(ctx context.Context, path string, opts ImportJSONOptions) (*ImportStats, error)
+	ExportCSV(ctx context.Context, path string, opts ExportOptions) (*ExportStats, error)
+	ExportJSON(ctx context.Context, path string, opts ExportOptions) (*ExportStats, error)
+	Stats() ImportExportStats
+}
+
+// ImportCSVOptions for CSV import.
+type ImportCSVOptions struct {
+	HasHeader   bool   `json:"has_header"`
+	KeyColumn   int    `json:"key_column"`
+	ValueColumn int    `json:"value_column"`
+	Delimiter   string `json:"delimiter"`
+	KeyPrefix   string `json:"key_prefix"`
+	SkipErrors  bool   `json:"skip_errors"`
+}
+
+// ImportJSONOptions for JSON import.
+type ImportJSONOptions struct {
+	KeyField   string `json:"key_field"`
+	ValueField string `json:"value_field"`
+	KeyPrefix  string `json:"key_prefix"`
+	SkipErrors bool   `json:"skip_errors"`
+}
+
+// ExportOptions for export operations.
+type ExportOptions struct {
+	StartKey      string `json:"start_key"`
+	EndKey        string `json:"end_key"`
+	KeyPrefix     string `json:"key_prefix"`
+	Limit         int64  `json:"limit"`
+	IncludeHeader bool   `json:"include_header"`
+}
+
+// ImportStats contains import statistics.
+type ImportStats struct {
+	RecordsTotal     int64   `json:"records_total"`
+	RecordsImported  int64   `json:"records_imported"`
+	RecordsFailed    int64   `json:"records_failed"`
+	BytesWritten     int64   `json:"bytes_written"`
+	DurationMs       int64   `json:"duration_ms"`
+	RecordsPerSecond float64 `json:"records_per_second"`
+}
+
+// ExportStats contains export statistics.
+type ExportStats struct {
+	RecordsExported  int64   `json:"records_exported"`
+	BytesWritten     int64   `json:"bytes_written"`
+	DurationMs       int64   `json:"duration_ms"`
+	RecordsPerSecond float64 `json:"records_per_second"`
+}
+
+// ImportExportStats contains overall statistics.
+type ImportExportStats struct {
+	TotalImports int64 `json:"total_imports"`
+	TotalExports int64 `json:"total_exports"`
+	InProgress   bool  `json:"in_progress"`
 }
 
 // BackupOptions for creating backups.
@@ -253,11 +318,23 @@ func (s *Server) registerHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/backup", s.handleBackup)
 	mux.HandleFunc("/admin/backup/list", s.handleBackupList)
 	mux.HandleFunc("/admin/backup/restore", s.handleBackupRestore)
+
+	// Import/Export endpoints
+	mux.HandleFunc("/admin/import/csv", s.handleImportCSV)
+	mux.HandleFunc("/admin/import/json", s.handleImportJSON)
+	mux.HandleFunc("/admin/export/csv", s.handleExportCSV)
+	mux.HandleFunc("/admin/export/json", s.handleExportJSON)
+	mux.HandleFunc("/admin/import/stats", s.handleImportExportStats)
 }
 
 // SetBackupManager sets the backup manager.
 func (s *Server) SetBackupManager(bm BackupManager) {
 	s.backupManager = bm
+}
+
+// SetImportExportManager sets the import/export manager.
+func (s *Server) SetImportExportManager(iem ImportExportManager) {
+	s.importExportManager = iem
 }
 
 // authMiddleware adds authentication if configured.
@@ -877,4 +954,213 @@ func (s *Server) handleBackupRestore(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeMessage(w, "restore completed")
+}
+
+// ============================================================================
+// Import/Export Handlers
+// ============================================================================
+
+// ImportCSVRequest is the request for CSV import.
+type ImportCSVRequest struct {
+	Path        string `json:"path"`
+	HasHeader   bool   `json:"has_header"`
+	KeyColumn   int    `json:"key_column"`
+	ValueColumn int    `json:"value_column"`
+	Delimiter   string `json:"delimiter"`
+	KeyPrefix   string `json:"key_prefix"`
+	SkipErrors  bool   `json:"skip_errors"`
+}
+
+// handleImportCSV handles POST /admin/import/csv.
+func (s *Server) handleImportCSV(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.importExportManager == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "import/export not configured")
+		return
+	}
+
+	var req ImportCSVRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Path == "" {
+		s.writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	s.logger.Info("CSV import requested", "path", req.Path)
+
+	stats, err := s.importExportManager.ImportCSV(r.Context(), req.Path, ImportCSVOptions{
+		HasHeader:   req.HasHeader,
+		KeyColumn:   req.KeyColumn,
+		ValueColumn: req.ValueColumn,
+		Delimiter:   req.Delimiter,
+		KeyPrefix:   req.KeyPrefix,
+		SkipErrors:  req.SkipErrors,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeSuccess(w, stats)
+}
+
+// ImportJSONRequest is the request for JSON import.
+type ImportJSONRequest struct {
+	Path       string `json:"path"`
+	KeyField   string `json:"key_field"`
+	ValueField string `json:"value_field"`
+	KeyPrefix  string `json:"key_prefix"`
+	SkipErrors bool   `json:"skip_errors"`
+}
+
+// handleImportJSON handles POST /admin/import/json.
+func (s *Server) handleImportJSON(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.importExportManager == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "import/export not configured")
+		return
+	}
+
+	var req ImportJSONRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Path == "" {
+		s.writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	s.logger.Info("JSON import requested", "path", req.Path)
+
+	stats, err := s.importExportManager.ImportJSON(r.Context(), req.Path, ImportJSONOptions{
+		KeyField:   req.KeyField,
+		ValueField: req.ValueField,
+		KeyPrefix:  req.KeyPrefix,
+		SkipErrors: req.SkipErrors,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeSuccess(w, stats)
+}
+
+// ExportRequest is the request for export operations.
+type ExportRequest struct {
+	Path          string `json:"path"`
+	StartKey      string `json:"start_key"`
+	EndKey        string `json:"end_key"`
+	KeyPrefix     string `json:"key_prefix"`
+	Limit         int64  `json:"limit"`
+	IncludeHeader bool   `json:"include_header"`
+}
+
+// handleExportCSV handles POST /admin/export/csv.
+func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.importExportManager == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "import/export not configured")
+		return
+	}
+
+	var req ExportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Path == "" {
+		s.writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	s.logger.Info("CSV export requested", "path", req.Path)
+
+	stats, err := s.importExportManager.ExportCSV(r.Context(), req.Path, ExportOptions{
+		StartKey:      req.StartKey,
+		EndKey:        req.EndKey,
+		KeyPrefix:     req.KeyPrefix,
+		Limit:         req.Limit,
+		IncludeHeader: req.IncludeHeader,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeSuccess(w, stats)
+}
+
+// handleExportJSON handles POST /admin/export/json.
+func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.importExportManager == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "import/export not configured")
+		return
+	}
+
+	var req ExportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Path == "" {
+		s.writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	s.logger.Info("JSON export requested", "path", req.Path)
+
+	stats, err := s.importExportManager.ExportJSON(r.Context(), req.Path, ExportOptions{
+		StartKey:  req.StartKey,
+		EndKey:    req.EndKey,
+		KeyPrefix: req.KeyPrefix,
+		Limit:     req.Limit,
+	})
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.writeSuccess(w, stats)
+}
+
+// handleImportExportStats handles GET /admin/import/stats.
+func (s *Server) handleImportExportStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.importExportManager == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "import/export not configured")
+		return
+	}
+
+	stats := s.importExportManager.Stats()
+	s.writeSuccess(w, stats)
 }
