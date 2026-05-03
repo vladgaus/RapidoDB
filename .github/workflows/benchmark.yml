@@ -138,6 +138,13 @@ jobs:
           # `badger benchmark read`  does random reads     (= readrandom).
           # BadgerDB CLI does not distinguish fillrandom/readseq, so we report
           # the same number for write→fillseq/fillrandom and read→readseq/readrandom.
+          #
+          # NOTE: BadgerDB CLI uses --keys-mil (millions of keys) and --val-size
+          # (NOT --key-count / --value-size).
+
+          # Convert NUM_OPS to millions (bash float arithmetic via awk).
+          KEYS_MIL=$(awk "BEGIN { printf \"%.6f\", ${{ env.NUM_OPS }} / 1000000 }")
+          echo "Running BadgerDB with --keys-mil=$KEYS_MIL --val-size=${{ env.VALUE_SIZE }}"
 
           mkdir -p /tmp/badger-data
           rm -rf /tmp/badger-data/*
@@ -145,16 +152,15 @@ jobs:
           echo "=== BadgerDB write benchmark ===" | tee badger-results.txt
           badger benchmark write \
             --dir=/tmp/badger-data \
-            --key-count=${{ env.NUM_OPS }} \
-            --value-size=${{ env.VALUE_SIZE }} \
+            --keys-mil="$KEYS_MIL" \
+            --val-size=${{ env.VALUE_SIZE }} \
             2>&1 | tee -a badger-results.txt
 
           echo "" >> badger-results.txt
           echo "=== BadgerDB read benchmark ===" >> badger-results.txt
           badger benchmark read \
             --dir=/tmp/badger-data \
-            --key-count=${{ env.NUM_OPS }} \
-            --duration=10s \
+            -d=10s \
             2>&1 | tee -a badger-results.txt
 
           rm -rf /tmp/badger-data
@@ -162,17 +168,35 @@ jobs:
       - name: Parse Results
         id: parse
         run: |
-          # BadgerDB output looks like:
-          #   [WRITE] Time elapsed: 5s, ... entries written: 100000, speed: 20000/sec
-          #   [READ]  Time elapsed: 10s, ... entries read: 5000000, speed: 500000/sec
-          # We extract the number before "/sec".
+          # BadgerDB CLI output varies by version. We try multiple known formats:
+          #
+          #   v4.x periodic line:     "[Total Wrote]  1000000 keys, 100.00 MB, 5.00 sec, 200000 keys/sec"
+          #   final summary line:     "Total writes/reads:  500000   Speed:  50000/sec"
+          #   alt:                    "Wrote 100000 keys jobs=4 speed=20000/s"
+          #
+          # We grep for any ".../sec" or ".../s" pattern attached to the right
+          # phase (write/read) and take the last (most stable) number.
 
           echo "=== BadgerDB Raw Output ==="
           cat badger-results.txt
           echo "==========================="
 
-          WRITE_OPS=$(grep -oP 'entries written:[^,]*, speed: \K[0-9]+(?=/sec)' badger-results.txt | tail -1 || echo "")
-          READ_OPS=$(grep -oP 'entries read:[^,]*, speed: \K[0-9]+(?=/sec)' badger-results.txt | tail -1 || echo "")
+          # Split into write and read sections. Everything between the "write" marker
+          # and "=== BadgerDB read" goes to the write section; rest is read.
+          awk '/=== BadgerDB write/,/=== BadgerDB read/' badger-results.txt > /tmp/badger-write.txt
+          awk '/=== BadgerDB read/,EOF'                  badger-results.txt > /tmp/badger-read.txt
+
+          # Pull the last number that appears immediately before "/sec" or "/s "
+          # in each section. Catches both "200000 keys/sec" and "speed=200000/s".
+          extract_speed() {
+            local file=$1
+            grep -oE '[0-9]+(\.[0-9]+)?[[:space:]]*(keys|writes|reads)?/(sec|s)\b' "$file" \
+              | grep -oE '^[0-9]+' \
+              | tail -1
+          }
+
+          WRITE_OPS=$(extract_speed /tmp/badger-write.txt)
+          READ_OPS=$(extract_speed /tmp/badger-read.txt)
 
           [ -z "$WRITE_OPS" ] && WRITE_OPS="N/A"
           [ -z "$READ_OPS" ] && READ_OPS="N/A"

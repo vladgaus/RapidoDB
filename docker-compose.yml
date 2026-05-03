@@ -60,11 +60,12 @@ services:
       - ./benchmark-results:/results
     command: >
       sh -c "mkdir -p /tmp/bdata &&
+             KEYS_MIL=$$(awk \"BEGIN { printf \\\"%.6f\\\", $${NUM_OPS:-100000} / 1000000 }\") &&
              echo '=== BadgerDB write benchmark ===' > /results/badger.txt &&
-             badger benchmark write --dir=/tmp/bdata --key-count=${NUM_OPS:-100000} --value-size=${VALUE_SIZE:-100} 2>&1 | tee -a /results/badger.txt &&
+             badger benchmark write --dir=/tmp/bdata --keys-mil=$$KEYS_MIL --val-size=$${VALUE_SIZE:-100} 2>&1 | tee -a /results/badger.txt &&
              echo '' >> /results/badger.txt &&
              echo '=== BadgerDB read benchmark ===' >> /results/badger.txt &&
-             badger benchmark read --dir=/tmp/bdata --key-count=${NUM_OPS:-100000} --duration=10s 2>&1 | tee -a /results/badger.txt"
+             badger benchmark read --dir=/tmp/bdata -d=10s 2>&1 | tee -a /results/badger.txt"
 
   leveldb-bench:
     build:

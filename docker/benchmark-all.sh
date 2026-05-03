@@ -41,22 +41,25 @@ echo "│  2/4  Running BadgerDB Benchmark...                                 �
 echo "└─────────────────────────────────────────────────────────────────────┘"
 
 # BadgerDB ships its own `badger benchmark` CLI (installed via `go install`).
+# CLI uses --keys-mil (millions of keys) and --val-size, not --key-count.
 rm -rf /tmp/badger_bench
 mkdir -p /tmp/badger_bench
+
+# Convert NUM_OPS to millions for --keys-mil
+KEYS_MIL=$(awk "BEGIN { printf \"%.6f\", $NUM_OPS / 1000000 }")
 
 echo "=== BadgerDB write benchmark ===" | tee "$OUTPUT_DIR/badger.txt"
 badger benchmark write \
     --dir=/tmp/badger_bench \
-    --key-count="$NUM_OPS" \
-    --value-size="$VALUE_SIZE" \
+    --keys-mil="$KEYS_MIL" \
+    --val-size="$VALUE_SIZE" \
     2>&1 | tee -a "$OUTPUT_DIR/badger.txt"
 
 echo "" >> "$OUTPUT_DIR/badger.txt"
 echo "=== BadgerDB read benchmark ===" >> "$OUTPUT_DIR/badger.txt"
 badger benchmark read \
     --dir=/tmp/badger_bench \
-    --key-count="$NUM_OPS" \
-    --duration=10s \
+    -d=10s \
     2>&1 | tee -a "$OUTPUT_DIR/badger.txt"
 
 rm -rf /tmp/badger_bench
@@ -128,20 +131,25 @@ extract_rocksdb() {
 }
 
 extract_badger() {
-    # BadgerDB CLI output looks like:
-    #   [WRITE] ... entries written: 100000, speed: 20000/sec
-    #   [READ]  ... entries read: 5000000, speed: 500000/sec
+    # BadgerDB CLI prints lines like "200000 keys/sec" or "speed=20000/s".
+    # Split output by phase (write vs read), pull last "/sec" or "/s" number.
+    local section_file="/tmp/badger-section.txt"
     case "$1" in
         fillseq|fillrandom)
-            grep -oP 'entries written:[^,]*, speed: \K[0-9]+(?=/sec)' "$OUTPUT_DIR/badger.txt" | tail -1 || echo "N/A"
+            awk '/=== BadgerDB write/,/=== BadgerDB read/' "$OUTPUT_DIR/badger.txt" > "$section_file"
             ;;
         readseq|readrandom)
-            grep -oP 'entries read:[^,]*, speed: \K[0-9]+(?=/sec)' "$OUTPUT_DIR/badger.txt" | tail -1 || echo "N/A"
+            awk '/=== BadgerDB read/,EOF' "$OUTPUT_DIR/badger.txt" > "$section_file"
             ;;
         *)
-            echo "N/A"
-            ;;
+            echo "N/A"; return ;;
     esac
+
+    local ops=$(grep -oE '[0-9]+(\.[0-9]+)?[[:space:]]*(keys|writes|reads)?/(sec|s)\b' "$section_file" \
+        | grep -oE '^[0-9]+' \
+        | tail -1)
+    rm -f "$section_file"
+    [ -z "$ops" ] && echo "N/A" || echo "$ops"
 }
 
 # Extract values
