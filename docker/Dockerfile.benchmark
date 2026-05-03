@@ -1,5 +1,5 @@
 # All-in-One Benchmark Dockerfile
-# Contains: RapidoDB, LevelDB, RocksDB, Redis
+# Contains: RapidoDB, BadgerDB, LevelDB, RocksDB
 # This ensures fair comparison on the same machine/container
 
 FROM ubuntu:22.04 AS builder
@@ -40,7 +40,11 @@ RUN git clone --depth 1 --branch v8.10.0 https://github.com/facebook/rocksdb.git
     cd /rocksdb && \
     DEBUG_LEVEL=0 PORTABLE=1 make db_bench -j$(nproc)
 
-# Build RapidoDB
+# Install BadgerDB official CLI (ships its own `badger benchmark` command)
+RUN go install github.com/dgraph-io/badger/v4/badger@v4.2.0 && \
+    cp /root/go/bin/badger /usr/local/bin/badger
+
+# Build RapidoDB (zero deps — main module untouched)
 COPY . /rapidodb
 RUN cd /rapidodb && \
     go build -ldflags "-s -w" -o /usr/local/bin/rapidodb-bench ./cmd/bench && \
@@ -49,7 +53,7 @@ RUN cd /rapidodb && \
 # Runtime stage
 FROM ubuntu:22.04
 
-# Install runtime dependencies + Redis
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     libgflags2.2 \
     libsnappy1v5 \
@@ -57,14 +61,13 @@ RUN apt-get update && apt-get install -y \
     libbz2-1.0 \
     liblz4-1 \
     libzstd1 \
-    redis-server \
-    redis-tools \
     bc \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy binaries
 COPY --from=builder /leveldb/build/db_bench /usr/local/bin/leveldb_bench
 COPY --from=builder /rocksdb/db_bench /usr/local/bin/rocksdb_bench
+COPY --from=builder /usr/local/bin/badger /usr/local/bin/badger
 COPY --from=builder /usr/local/bin/rapidodb-bench /usr/local/bin/
 COPY --from=builder /usr/local/bin/rapidodb-server /usr/local/bin/
 

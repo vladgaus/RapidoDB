@@ -1,6 +1,6 @@
 #!/bin/bash
 # Benchmark Comparison Script
-# Compares RapidoDB vs Redis vs LevelDB vs RocksDB
+# Compares RapidoDB vs BadgerDB vs LevelDB vs RocksDB
 
 set -e
 
@@ -15,7 +15,7 @@ echo "║            DATABASE BENCHMARK COMPARISON                              
 echo "║                                                                       ║"
 echo "║  Operations: $NUM_OPS                                                 ║"
 echo "║  Value Size: $VALUE_SIZE bytes                                        ║"
-echo "║  Databases:  RapidoDB, Redis, LevelDB, RocksDB                        ║"
+echo "║  Databases:  RapidoDB, BadgerDB, LevelDB, RocksDB                     ║"
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -34,31 +34,35 @@ echo ""
 sleep 2
 
 # ============================================================================
-# Redis Benchmark (with AOF persistence for fair comparison)
+# BadgerDB Benchmark
 # ============================================================================
 echo "┌─────────────────────────────────────────────────────────────────────┐"
-echo "│  2/4  Running Redis Benchmark (with AOF persistence)...             │"
+echo "│  2/4  Running BadgerDB Benchmark...                                 │"
 echo "└─────────────────────────────────────────────────────────────────────┘"
 
-# Start Redis with AOF persistence
-redis-server --daemonize yes --appendonly yes --appendfsync everysec --dir /tmp
-sleep 2
+# BadgerDB ships its own `badger benchmark` CLI (installed via `go install`).
+# CLI uses --keys-mil (millions of keys) and --val-size, not --key-count.
+rm -rf /tmp/badger_bench
+mkdir -p /tmp/badger_bench
 
-# Check Redis is running
-redis-cli ping
+# Convert NUM_OPS to millions for --keys-mil
+KEYS_MIL=$(awk "BEGIN { printf \"%.6f\", $NUM_OPS / 1000000 }")
 
-# Redis benchmark with pipelining (P=16) for realistic throughput
-# Note: Redis is in-memory + network, others are embedded disk-based
-echo "=== Redis SET (write) benchmark (P=16) ===" | tee "$OUTPUT_DIR/redis.txt"
-redis-benchmark -t set -n "$NUM_OPS" -d "$VALUE_SIZE" -P 16 --csv 2>&1 | tee -a "$OUTPUT_DIR/redis.txt"
+echo "=== BadgerDB write benchmark ===" | tee "$OUTPUT_DIR/badger.txt"
+badger benchmark write \
+    --dir=/tmp/badger_bench \
+    --keys-mil="$KEYS_MIL" \
+    --val-size="$VALUE_SIZE" \
+    2>&1 | tee -a "$OUTPUT_DIR/badger.txt"
 
-echo "" >> "$OUTPUT_DIR/redis.txt"
-echo "=== Redis GET (read) benchmark (P=16) ===" >> "$OUTPUT_DIR/redis.txt"
-redis-benchmark -t get -n "$NUM_OPS" -d "$VALUE_SIZE" -P 16 --csv 2>&1 | tee -a "$OUTPUT_DIR/redis.txt"
+echo "" >> "$OUTPUT_DIR/badger.txt"
+echo "=== BadgerDB read benchmark ===" >> "$OUTPUT_DIR/badger.txt"
+badger benchmark read \
+    --dir=/tmp/badger_bench \
+    -d=10s \
+    2>&1 | tee -a "$OUTPUT_DIR/badger.txt"
 
-# Stop Redis
-redis-cli shutdown nosave 2>/dev/null || true
-rm -rf /tmp/appendonly.aof /tmp/dump.rdb
+rm -rf /tmp/badger_bench
 
 echo ""
 sleep 2
@@ -126,12 +130,26 @@ extract_rocksdb() {
     grep "^$1" "$OUTPUT_DIR/rocksdb.txt" | awk '{print $5}' | head -1 || echo "N/A"
 }
 
-extract_redis_set() {
-    grep '"SET"' "$OUTPUT_DIR/redis.txt" | head -1 | cut -d',' -f2 | tr -d '"' || echo "N/A"
-}
+extract_badger() {
+    # BadgerDB CLI prints lines like "200000 keys/sec" or "speed=20000/s".
+    # Split output by phase (write vs read), pull last "/sec" or "/s" number.
+    local section_file="/tmp/badger-section.txt"
+    case "$1" in
+        fillseq|fillrandom)
+            awk '/=== BadgerDB write/,/=== BadgerDB read/' "$OUTPUT_DIR/badger.txt" > "$section_file"
+            ;;
+        readseq|readrandom)
+            awk '/=== BadgerDB read/,EOF' "$OUTPUT_DIR/badger.txt" > "$section_file"
+            ;;
+        *)
+            echo "N/A"; return ;;
+    esac
 
-extract_redis_get() {
-    grep '"GET"' "$OUTPUT_DIR/redis.txt" | head -1 | cut -d',' -f2 | tr -d '"' || echo "N/A"
+    local ops=$(grep -oE '[0-9]+(\.[0-9]+)?[[:space:]]*(keys|writes|reads)?/(sec|s)\b' "$section_file" \
+        | grep -oE '^[0-9]+' \
+        | tail -1)
+    rm -f "$section_file"
+    [ -z "$ops" ] && echo "N/A" || echo "$ops"
 }
 
 # Extract values
@@ -140,8 +158,10 @@ RAPIDODB_FILLRANDOM=$(extract_rapidodb "fillrandom")
 RAPIDODB_READSEQ=$(extract_rapidodb "readseq")
 RAPIDODB_READRANDOM=$(extract_rapidodb "readrandom")
 
-REDIS_WRITE=$(extract_redis_set)
-REDIS_READ=$(extract_redis_get)
+BADGER_FILLSEQ=$(extract_badger "fillseq")
+BADGER_FILLRANDOM=$(extract_badger "fillrandom")
+BADGER_READSEQ=$(extract_badger "readseq")
+BADGER_READRANDOM=$(extract_badger "readrandom")
 
 LEVELDB_FILLSEQ=$(extract_leveldb "fillseq")
 LEVELDB_FILLRANDOM=$(extract_leveldb "fillrandom")
@@ -155,25 +175,22 @@ ROCKSDB_READRANDOM=$(extract_rocksdb "readrandom")
 
 # Print comparison table
 echo "┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐"
-echo "│  Workload   │  RapidoDB   │   Redis*    │  LevelDB    │  RocksDB    │"
+echo "│  Workload   │  RapidoDB   │  BadgerDB   │  LevelDB    │  RocksDB    │"
 echo "├─────────────┼─────────────┼─────────────┼─────────────┼─────────────┤"
-printf "│ fillseq     │ %11s │ %11s │ %11s │ %11s │\n" "$RAPIDODB_FILLSEQ" "$REDIS_WRITE" "$LEVELDB_FILLSEQ" "$ROCKSDB_FILLSEQ"
-printf "│ fillrandom  │ %11s │ %11s │ %11s │ %11s │\n" "$RAPIDODB_FILLRANDOM" "$REDIS_WRITE" "$LEVELDB_FILLRANDOM" "$ROCKSDB_FILLRANDOM"
-printf "│ readseq     │ %11s │ %11s │ %11s │ %11s │\n" "$RAPIDODB_READSEQ" "$REDIS_READ" "$LEVELDB_READSEQ" "$ROCKSDB_READSEQ"
-printf "│ readrandom  │ %11s │ %11s │ %11s │ %11s │\n" "$RAPIDODB_READRANDOM" "$REDIS_READ" "$LEVELDB_READRANDOM" "$ROCKSDB_READRANDOM"
+printf "│ fillseq     │ %11s │ %11s │ %11s │ %11s │\n" "$RAPIDODB_FILLSEQ" "$BADGER_FILLSEQ" "$LEVELDB_FILLSEQ" "$ROCKSDB_FILLSEQ"
+printf "│ fillrandom  │ %11s │ %11s │ %11s │ %11s │\n" "$RAPIDODB_FILLRANDOM" "$BADGER_FILLRANDOM" "$LEVELDB_FILLRANDOM" "$ROCKSDB_FILLRANDOM"
+printf "│ readseq     │ %11s │ %11s │ %11s │ %11s │\n" "$RAPIDODB_READSEQ" "$BADGER_READSEQ" "$LEVELDB_READSEQ" "$ROCKSDB_READSEQ"
+printf "│ readrandom  │ %11s │ %11s │ %11s │ %11s │\n" "$RAPIDODB_READRANDOM" "$BADGER_READRANDOM" "$LEVELDB_READRANDOM" "$ROCKSDB_READRANDOM"
 echo "└─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘"
-echo ""
-echo "* Redis runs with AOF persistence (appendfsync everysec) for fair comparison"
-echo "* Redis seq/random show same value: Redis is hash-based, no sequential vs random distinction"
 echo ""
 
 echo "┌─────────────────────────────────────────────────────────────────────┐"
 echo "│  Database Comparison                                                │"
 echo "├─────────────────────────────────────────────────────────────────────┤"
-echo "│  RapidoDB: Go, 0 deps, disk-based, data can exceed RAM              │"
-echo "│  Redis:    C, in-memory, fastest but limited by RAM                 │"
-echo "│  LevelDB:  C++, 2 deps, disk-based, original LSM implementation     │"
-echo "│  RocksDB:  C++, 20+ deps, disk-based, highly optimized              │"
+echo "│  RapidoDB: Pure Go, 0 deps, built-in server, Memcached protocol     │"
+echo "│  BadgerDB: Pure Go, ~10 deps, embedded only, WiscKey architecture   │"
+echo "│  LevelDB:  C++, 2 deps, embedded, original LSM implementation       │"
+echo "│  RocksDB:  C++, 20+ deps, embedded, highly optimized                │"
 echo "└─────────────────────────────────────────────────────────────────────┘"
 
 echo ""
@@ -181,7 +198,7 @@ echo "╚═══════════════════════�
 echo ""
 echo "Full results saved to: $OUTPUT_DIR/"
 echo "  - rapidodb.txt"
-echo "  - redis.txt"
+echo "  - badger.txt"
 echo "  - leveldb.txt"
 echo "  - rocksdb.txt"
 
@@ -195,21 +212,22 @@ cat > "$OUTPUT_DIR/summary.md" << EOF
 
 ## Results (ops/sec)
 
-| Workload | RapidoDB | Redis* | LevelDB | RocksDB |
-|:---------|:---------|:-------|:--------|:--------|
-| fillseq | $RAPIDODB_FILLSEQ | $REDIS_WRITE | $LEVELDB_FILLSEQ | $ROCKSDB_FILLSEQ |
-| fillrandom | $RAPIDODB_FILLRANDOM | $REDIS_WRITE | $LEVELDB_FILLRANDOM | $ROCKSDB_FILLRANDOM |
-| readseq | $RAPIDODB_READSEQ | $REDIS_READ | $LEVELDB_READSEQ | $ROCKSDB_READSEQ |
-| readrandom | $RAPIDODB_READRANDOM | $REDIS_READ | $LEVELDB_READRANDOM | $ROCKSDB_READRANDOM |
+| Workload | RapidoDB | BadgerDB | LevelDB | RocksDB |
+|:---------|:---------|:---------|:--------|:--------|
+| fillseq | $RAPIDODB_FILLSEQ | $BADGER_FILLSEQ | $LEVELDB_FILLSEQ | $ROCKSDB_FILLSEQ |
+| fillrandom | $RAPIDODB_FILLRANDOM | $BADGER_FILLRANDOM | $LEVELDB_FILLRANDOM | $ROCKSDB_FILLRANDOM |
+| readseq | $RAPIDODB_READSEQ | $BADGER_READSEQ | $LEVELDB_READSEQ | $ROCKSDB_READSEQ |
+| readrandom | $RAPIDODB_READRANDOM | $BADGER_READRANDOM | $LEVELDB_READRANDOM | $ROCKSDB_READRANDOM |
 
-_*Redis with AOF persistence (appendfsync everysec)_
+## Database Comparison
 
-## Notes
-
-- **RapidoDB**: Zero dependencies, 4MB binary, pure Go, data can exceed RAM
-- **Redis**: In-memory (fastest but limited by RAM)
-- **LevelDB**: Original LSM implementation by Google
-- **RocksDB**: Highly optimized, 20+ dependencies
+| Feature | RapidoDB | BadgerDB | LevelDB | RocksDB |
+|:--------|:---------|:---------|:--------|:--------|
+| Language | Pure Go | Pure Go | C++ | C++ |
+| Dependencies | **0** | ~10 | 2 | 20+ |
+| CGO Required | No | No | Yes | Yes |
+| Server Mode | **Yes** | No | No | No |
+| Architecture | LSM-Tree | WiscKey | LSM-Tree | LSM-Tree |
 EOF
 
 echo "Summary saved to: $OUTPUT_DIR/summary.md"
