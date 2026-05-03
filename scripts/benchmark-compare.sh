@@ -1,6 +1,9 @@
 #!/bin/bash
 # Quick Benchmark Comparison Script
 # Usage: ./scripts/benchmark-compare.sh [num_ops] [value_size]
+#
+# Runs the full comparison: RapidoDB vs BadgerDB vs LevelDB vs RocksDB
+# inside Docker so no local installs of LevelDB/RocksDB are required.
 
 NUM_OPS=${1:-100000}
 VALUE_SIZE=${2:-100}
@@ -10,6 +13,7 @@ echo "║            RapidoDB Benchmark Comparison                              
 echo "║                                                                       ║"
 echo "║  This script runs benchmarks using Docker.                            ║"
 echo "║  No installation required - everything runs in containers.            ║"
+echo "║  Compares: RapidoDB vs BadgerDB vs LevelDB vs RocksDB                 ║"
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Parameters:"
@@ -51,5 +55,6 @@ $COMPOSE_CMD run -e NUM_OPS=$NUM_OPS -e VALUE_SIZE=$VALUE_SIZE benchmark
 echo ""
 echo "Results saved to ./benchmark-results/"
 echo "  - rapidodb.txt"
-echo "  - leveldb.txt"  
+echo "  - badger.txt"
+echo "  - leveldb.txt"
 echo "  - rocksdb.txt"

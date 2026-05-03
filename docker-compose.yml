@@ -1,10 +1,10 @@
 # Docker Compose for RapidoDB
-# 
+#
 # Usage:
 #   # Run RapidoDB server
 #   docker-compose up rapidodb
 #
-#   # Run full benchmark comparison (RapidoDB vs LevelDB vs RocksDB vs Redis)
+#   # Run full benchmark comparison (RapidoDB vs BadgerDB vs LevelDB vs RocksDB)
 #   docker-compose run benchmark
 #
 #   # Run with custom parameters
@@ -12,7 +12,7 @@
 #
 #   # Run individual benchmarks
 #   docker-compose run rapidodb-bench
-#   docker-compose run redis-bench
+#   docker-compose run badger-bench
 #   docker-compose run leveldb-bench
 #   docker-compose run rocksdb-bench
 
@@ -50,15 +50,22 @@ services:
       - ./benchmark-results:/results
     command: sh -c "rapidodb-bench --mode all --num ${NUM_OPS:-100000} --value-size ${VALUE_SIZE:-100} 2>&1 | tee /results/rapidodb.txt"
 
-  redis-bench:
-    image: redis:7-alpine
+  # BadgerDB benchmark — uses the official `badger benchmark` CLI installed
+  # in docker/Dockerfile.badger. RapidoDB module never imports BadgerDB.
+  badger-bench:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.badger
     volumes:
       - ./benchmark-results:/results
     command: >
-      sh -c "redis-server --daemonize yes --appendonly yes --appendfsync everysec && 
-             sleep 2 && 
-             echo '=== Redis Benchmark (with AOF persistence, P=16) ===' > /results/redis.txt &&
-             redis-benchmark -t set,get -n ${NUM_OPS:-100000} -d ${VALUE_SIZE:-100} -P 16 --csv 2>&1 | tee -a /results/redis.txt"
+      sh -c "mkdir -p /tmp/bdata &&
+             KEYS_MIL=$$(awk \"BEGIN { printf \\\"%.6f\\\", $${NUM_OPS:-100000} / 1000000 }\") &&
+             echo '=== BadgerDB write benchmark ===' > /results/badger.txt &&
+             badger benchmark write --dir=/tmp/bdata --keys-mil=$$KEYS_MIL --val-size=$${VALUE_SIZE:-100} 2>&1 | tee -a /results/badger.txt &&
+             echo '' >> /results/badger.txt &&
+             echo '=== BadgerDB read benchmark ===' >> /results/badger.txt &&
+             badger benchmark read --dir=/tmp/bdata -d=10s 2>&1 | tee -a /results/badger.txt"
 
   leveldb-bench:
     build:
