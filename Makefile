@@ -171,6 +171,7 @@ help:
 	@echo "  build        - Build all binaries"
 	@echo "  server       - Build server binary only"
 	@echo "  bench-tool   - Build benchmark tool only"
+	@echo "  cli          - Build CLI tool only"
 	@echo "  clean        - Clean build artifacts"
 	@echo "  install      - Install binaries to GOPATH/bin"
 	@echo ""

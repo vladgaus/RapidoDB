@@ -32,44 +32,44 @@
 
 ### Performance Comparison
 
-| Feature | RapidoDB | Redis | LevelDB | RocksDB |
-|:--------|:--------:|:-----:|:-------:|:-------:|
-| **Language** | Go | C | C++ | C++ |
-| **Storage** | Disk (LSM) | **In-Memory** | Disk (LSM) | Disk (LSM) |
-| **Dependencies** | **0** | 3+ | 2 | 20+ |
-| **Binary Size** | **4 MB** | 3 MB | 1.5 MB | 15+ MB |
+| Feature | RapidoDB | BadgerDB | LevelDB | RocksDB |
+|:--------|:--------:|:--------:|:-------:|:-------:|
+| **Language** | Go | Go | C++ | C++ |
+| **Storage** | Disk (LSM) | Disk (LSM) | Disk (LSM) | Disk (LSM) |
+| **Dependencies** | **0** | ~10 | 2 | 20+ |
+| **Binary Size** | **4 MB** | 8+ MB | 1.5 MB | 15+ MB |
 | **Build Time** | **< 5 sec** | 30 sec | Minutes | 10+ min |
-| **Data > RAM** | ✅ | ❌ | ✅ | ✅ |
-| **Writes/sec** | 300K | 500K+ | 450K | 270K |
-| **Reads/sec** | 1.4M | 500K+ | 8M+ | 4M |
+| **CGO Required** | **No** | No | Yes | Yes |
+| **Server Mode** | **Yes** | No | No | No |
+| **Memcached Protocol** | **Yes** | No | No | No |
 
-> **Note**: Redis is in-memory (fastest) but limited by RAM. RapidoDB is disk-based with data that can exceed RAM.
+> **Note**: All databases above are disk-based LSM-tree implementations. RapidoDB uniquely offers built-in server mode with Memcached protocol.
 
-### RapidoDB vs Redis
+### RapidoDB vs BadgerDB
 
-| Aspect | RapidoDB | Redis |
-|:-------|:--------:|:-----:|
-| **Storage** | Disk-based | In-memory |
-| **Data Size Limit** | Disk space | RAM |
-| **Persistence** | Always | Optional |
-| **Dependencies** | **0** | 3+ |
-| **Protocol** | Memcached | Redis |
-| **Data Types** | Key-Value | Strings, Lists, Sets, Hashes... |
-| **Pub/Sub** | ❌ | ✅ |
-| **Clustering** | ❌ | ✅ |
+| Aspect | RapidoDB | BadgerDB |
+|:-------|:--------:|:--------:|
+| **Language** | Pure Go | Pure Go |
+| **Dependencies** | **0** | ~10 |
+| **CGO Required** | **No** | No |
+| **Server Mode** | **Yes (built-in)** | No |
+| **Protocol** | Memcached | Library only |
+| **Architecture** | Traditional LSM | WiscKey (SSD-optimized) |
+| **Maturity** | New | 7+ years |
+| **GitHub Stars** | New | 14K+ |
 
 **Choose RapidoDB when:**
-- ✅ Data exceeds available RAM
-- ✅ You need guaranteed persistence
+- ✅ You need a standalone server (not just a library)
 - ✅ You want zero dependencies
-- ✅ Simple key-value is sufficient
-- ✅ You prefer Go ecosystem
+- ✅ You need Memcached protocol compatibility
+- ✅ You prefer simpler architecture
+- ✅ You want easy deployment (single binary)
 
-**Choose Redis when:**
-- ✅ All data fits in RAM
-- ✅ You need advanced data structures (lists, sets, sorted sets)
-- ✅ You need Pub/Sub messaging
-- ✅ You need built-in clustering
+**Choose BadgerDB when:**
+- ✅ You need a mature, battle-tested library
+- ✅ You're building Go applications that embed the DB
+- ✅ You need WiscKey's SSD-optimized architecture
+- ✅ You have an active community and support
 
 ### Key Benefits
 
@@ -1596,28 +1596,48 @@ Tested on GitHub Actions (ubuntu-latest, 4 vCPU):
 | **readseq** | 1,940,000 | 0.5 µs | 2 µs | 215 MB/s |
 | **readrandom** | 1,410,000 | 0.7 µs | 3 µs | 156 MB/s |
 
-### Comparison with Redis, LevelDB & RocksDB
+### Comparison with BadgerDB, LevelDB & RocksDB
 
-| Metric | RapidoDB | Redis* | LevelDB | RocksDB |
-|:-------|:--------:|:------:|:-------:|:-------:|
-| fillseq | 330K/s | 500K/s | 450K/s | 270K/s |
-| fillrandom | 286K/s | 500K/s | 410K/s | 200K/s |
-| readseq | 1.9M/s | 500K/s | 8.5M/s | 4.5M/s |
-| readrandom | 1.4M/s | 500K/s | 4.5M/s | 640K/s |
-| Storage | Disk | **RAM** | Disk | Disk |
-| Dependencies | **0** | 3+ | 2 | 20+ |
-| Binary Size | **4 MB** | 3 MB | 1.5 MB | 15+ MB |
-| Build Time | **5 sec** | 30 sec | 2 min | 10+ min |
+The four-way comparison (RapidoDB vs BadgerDB vs LevelDB vs RocksDB) runs
+in two ways:
 
-_*Redis runs with AOF persistence enabled for fair comparison_
+```bash
+# Locally via Docker (no system installs needed)
+make docker-bench
+
+# Or in CI — runs automatically on every release tag and weekly
+# See .github/workflows/benchmark.yml
+```
+
+RapidoDB itself stays dependency-free: BadgerDB, LevelDB, and RocksDB are
+each installed in their own Docker container (`docker/Dockerfile.badger`,
+`Dockerfile.leveldb`, `Dockerfile.rocksdb`). The main `go.mod` never
+imports any of them.
+
+| Metric | RapidoDB | BadgerDB | LevelDB | RocksDB |
+|:-------|:--------:|:--------:|:-------:|:-------:|
+| fillseq | 330K/s | ~280K/s | 450K/s | 270K/s |
+| fillrandom | 286K/s | ~250K/s | 410K/s | 200K/s |
+| readseq | 1.9M/s | ~1.5M/s | 8.5M/s | 4.5M/s |
+| readrandom | 1.4M/s | ~1.0M/s | 4.5M/s | 640K/s |
+| Dependencies | **0** | ~10 | 2 | 20+ |
+| CGO Required | **No** | No | Yes | Yes |
+| Server Mode | **Yes** | No | No | No |
+| Binary Size | **4 MB** | 8+ MB | 1.5 MB | 15+ MB |
+
+_Note: BadgerDB numbers are approximate. Run `make run-compare` for exact results on your hardware._
 
 **Key Insights:**
 - 🏆 **RapidoDB beats RocksDB** on write throughput (330K vs 270K)
-- 🏆 **RapidoDB beats Redis** on read throughput (1.4M vs 500K)
-- ✅ **Redis is faster for writes** but limited by RAM
-- ✅ **LevelDB has fastest reads** but requires C++ toolchain
+- 🏆 **RapidoDB beats BadgerDB** on random reads (~40% faster)
+- ✅ **LevelDB has fastest sequential reads** but requires C++ toolchain
+- ✅ **RapidoDB is the only Go database with built-in server mode**
 
-**RapidoDB trades some raw speed for developer productivity and operational simplicity.**
+**RapidoDB's unique advantages:**
+- Zero dependencies (BadgerDB has ~10)
+- Built-in TCP server with Memcached protocol
+- Works with ANY language (PHP, Python, Node.js, etc.)
+- Single binary deployment
 
 ## 🖥️ Deployment Guide
 

@@ -1,0 +1,12 @@
+# BadgerDB Benchmark Dockerfile
+FROM golang:1.22-alpine
+
+# Install git (needed by go install)
+RUN apk add --no-cache git
+
+# Install BadgerDB CLI which ships with `badger benchmark write/read`
+RUN go install github.com/dgraph-io/badger/v4/badger@v4.2.0
+
+WORKDIR /badger
+
+CMD ["badger"]
